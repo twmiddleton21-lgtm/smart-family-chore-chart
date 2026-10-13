@@ -1,0 +1,35 @@
+# Keep the Docker build context minimal. The Dockerfile copies only
+# package*.json, index.html, tsconfig.json, vite.config.ts, public/ and src/.
+
+# Dependencies and build output (rebuilt inside the image)
+node_modules
+dist
+coverage
+*.log
+
+# Secrets and local environment: never send to the build
+.env
+.env.*
+*.local
+*.pem
+*.key
+.npmrc
+
+# VCS, CI, editor and OS files
+.git
+.gitignore
+.github
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+
+# Container files themselves and docs (not needed to build the app)
+Dockerfile
+.dockerignore
+compose.yaml
+compose.*.yaml
+docker-compose*.yml
+docs
+README.md
+.nvmrc

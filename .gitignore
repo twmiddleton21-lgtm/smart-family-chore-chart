@@ -1,0 +1,13 @@
+node_modules
+dist
+*.log
+.DS_Store
+coverage
+
+# Local environment and secrets: never commit
+.env
+.env.*
+!.env.example
+*.local
+*.pem
+*.key

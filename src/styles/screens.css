@@ -1,0 +1,755 @@
+/* ============================================================
+   Screen layouts. Portrait-first; landscape and small screens adapt.
+   ============================================================ */
+
+.app {
+  min-height: 100dvh;
+}
+
+.screen {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(1rem, 2.5vmin, 2rem);
+  width: 100%;
+  max-width: 84rem;
+  min-height: 100dvh;
+  margin: 0 auto;
+  padding: var(--gutter);
+  padding-bottom: calc(var(--gutter) + 5rem); /* room for toasts */
+}
+
+.topbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-weight: 900;
+  font-size: 1.2rem;
+}
+.brand-mark {
+  display: grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.8rem;
+  background: var(--teal);
+  color: #fff;
+  font-size: 1.4rem;
+  box-shadow: inset 0 -3px 0 rgb(0 0 0 / 0.12);
+}
+
+.screen-title {
+  font-size: clamp(1.75rem, 1.2rem + 2vmin, 3rem);
+  font-weight: 900;
+  line-height: 1.1;
+}
+
+.section-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem 1.5rem;
+  margin-bottom: 1rem;
+}
+.section-subtitle {
+  font-size: 1.35rem;
+  font-weight: 900;
+  margin-bottom: 0.75rem;
+}
+
+/* ---------- Dashboard ---------- */
+
+.family-progress {
+  font-size: 1.15rem;
+  color: var(--ink-soft);
+  font-weight: 600;
+}
+.profile-list {
+  display: grid;
+  gap: clamp(1rem, 2vmin, 1.75rem);
+}
+.dashboard-footer {
+  margin-top: auto;
+  padding-top: 1rem;
+  text-align: center;
+  color: var(--ink-soft);
+  font-weight: 600;
+}
+
+/* ---------- Child chart & rewards header ---------- */
+
+.chart-hero {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: clamp(1rem, 2.5vmin, 2rem);
+  padding: clamp(1rem, 2.5vmin, 2rem);
+  border: 3px solid var(--accent);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(120deg, var(--surface) 50%, var(--accent-soft));
+  box-shadow: var(--shadow);
+}
+.chart-hero-text {
+  display: grid;
+  gap: 0.6rem;
+  min-width: 0;
+}
+.chart-summary {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+.chart-points {
+  display: grid;
+  justify-items: center;
+  padding: 0.85rem 1.25rem;
+  border-radius: var(--radius);
+  background: #fff3d1;
+  border: 3px solid var(--yellow);
+  color: #5c4000;
+  text-align: center;
+  min-width: 8rem;
+}
+.chart-points-value {
+  font-size: clamp(1.8rem, 1.3rem + 2vmin, 3rem);
+  font-weight: 900;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.chart-points-label {
+  font-weight: 800;
+}
+.chart-points-today {
+  margin-top: 0.2rem;
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: var(--success-ink);
+}
+
+.periods {
+  display: grid;
+  gap: clamp(1rem, 2.5vmin, 2rem);
+}
+
+/* ---------- Rewards ---------- */
+
+.reward-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr));
+  gap: clamp(1rem, 2vmin, 1.5rem);
+}
+.reward-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1.5rem 1.25rem;
+  border: 3px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  text-align: center;
+}
+.reward-affordable {
+  border-color: var(--yellow);
+  box-shadow: var(--shadow);
+}
+.reward-locked {
+  background: #fbf9fd;
+}
+.reward-icon {
+  font-family: var(--font-emoji);
+  font-size: 3.5rem;
+  line-height: 1.1;
+}
+.reward-locked .reward-icon {
+  filter: grayscale(0.6);
+  opacity: 0.75;
+}
+.reward-name {
+  font-size: 1.35rem;
+  font-weight: 900;
+}
+.reward-description {
+  color: var(--ink-soft);
+  flex: 1;
+}
+.reward-cost {
+  font-weight: 900;
+  font-size: 1.15rem;
+  color: #5c4000;
+}
+.reward-need {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4em;
+  width: 100%;
+  min-height: var(--touch);
+  padding: 0.5rem 1rem;
+  border-radius: 999px;
+  background: #f1edf6;
+  color: var(--ink-soft);
+  font-weight: 800;
+}
+
+.history {
+  padding: 1.25rem 1.5rem;
+  border-radius: var(--radius-lg);
+  background: rgb(255 255 255 / 0.85);
+  border: 2px solid var(--line);
+}
+.history-list {
+  display: grid;
+  gap: 0.5rem;
+}
+.history-list li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.25rem 1rem;
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--line);
+  font-weight: 700;
+}
+.history-list li:last-child {
+  border-bottom: 0;
+}
+
+/* ---------- Parent area ---------- */
+
+.parent-title {
+  font-size: clamp(1.5rem, 1.1rem + 1.5vmin, 2.5rem);
+}
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.4rem;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.85);
+  border: 2px solid var(--line);
+  align-self: flex-start;
+}
+.tab {
+  min-height: var(--touch);
+  padding: 0.5rem 1.25rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  font-weight: 800;
+  font-size: 1.05rem;
+}
+.tab[aria-selected='true'] {
+  background: var(--primary);
+  color: #fff;
+}
+.tab-panel {
+  display: grid;
+}
+.panel {
+  display: grid;
+  gap: 1.25rem;
+}
+.panel-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+}
+
+.admin-group {
+  padding: 1.25rem;
+  border: 3px solid var(--accent);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+.admin-group-title {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 1.4rem;
+  font-weight: 900;
+  margin-bottom: 0.75rem;
+}
+.admin-period + .admin-period {
+  margin-top: 1rem;
+}
+.admin-period-title {
+  font-size: 1.05rem;
+  font-weight: 900;
+  margin-bottom: 0.5rem;
+  color: var(--ink-soft);
+}
+.admin-list {
+  display: grid;
+  gap: 0.6rem;
+}
+.admin-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0.75rem 1rem;
+  border: 2px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.admin-cards .admin-row {
+  box-shadow: var(--shadow-sm);
+}
+.admin-icon {
+  font-family: var(--font-emoji);
+  font-size: 2rem;
+}
+.admin-main {
+  display: grid;
+  min-width: 0;
+}
+.admin-name {
+  font-weight: 800;
+  font-size: 1.15rem;
+}
+.admin-meta {
+  color: var(--ink-soft);
+  font-size: 0.95rem;
+}
+.admin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.settings-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr));
+  align-items: start;
+}
+.settings-card {
+  display: grid;
+  gap: 1rem;
+  padding: 1.5rem;
+  border: 2px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+.settings-card > .button {
+  justify-self: start;
+}
+.settings-danger {
+  border-color: #f0b8b3;
+}
+.plain-list {
+  display: grid;
+  gap: 0.5rem;
+  padding-left: 1.25rem;
+  list-style: disc;
+}
+
+/* ---------- Large portrait displays (e.g. 27" portrait touchscreen) ---------- */
+
+@media (orientation: portrait) and (min-height: 1400px) and (min-width: 900px) {
+  /* Let the profile cards share the remaining height instead of leaving
+     a large empty area below them. */
+  .dashboard .profiles {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
+  .dashboard .profile-list {
+    flex: 1;
+    grid-auto-rows: minmax(10rem, 1fr);
+    max-height: 60rem;
+  }
+  .dashboard .profile-card {
+    height: 100%;
+    padding: 2rem 2.5rem;
+  }
+  .dashboard .avatar-xl {
+    width: 10rem;
+    height: 10rem;
+    font-size: 6rem;
+    border-width: 6px;
+  }
+  .dashboard .profile-name {
+    font-size: 3.5rem;
+  }
+  .dashboard .profile-stats {
+    font-size: 1.4rem;
+  }
+  .dashboard .profile-card .progress {
+    height: 1.25rem;
+  }
+  .dashboard .profile-go {
+    width: 5rem;
+    height: 5rem;
+    font-size: 2.25rem;
+  }
+  .clock-card {
+    padding-block: 3.5rem;
+  }
+
+  /* Readable school lunch card from across the room. */
+  .meals-title {
+    font-size: 2.25rem;
+  }
+  .meal-child {
+    padding: 1.25rem 1.4rem;
+    gap: 0.8rem;
+  }
+  .meal-child-name {
+    font-size: 1.75rem;
+  }
+  .meal-child .avatar-sm {
+    width: 3.25rem;
+    height: 3.25rem;
+    font-size: 1.8rem;
+  }
+  .meal-item dt {
+    font-size: 1.05rem;
+  }
+  .meal-item dd {
+    font-size: 1.6rem;
+  }
+  .meal-none,
+  .meals-empty {
+    font-size: 1.4rem;
+  }
+
+  /* Bigger chores so children can read and tap them from a step away. */
+  .chore {
+    min-height: 7rem;
+    gap: 0.9rem;
+    padding: 1rem 1.1rem;
+  }
+  .chore-check {
+    width: 3.75rem;
+    height: 3.75rem;
+    font-size: 2rem;
+  }
+  .chore-icon {
+    font-size: 2.75rem;
+  }
+  .chore-title {
+    font-size: 1.6rem;
+  }
+  .chore-status {
+    font-size: 1.05rem;
+  }
+  .chore-points {
+    font-size: 1.4rem;
+    padding: 0.4rem 0.9rem;
+  }
+  .chore-list {
+    gap: 1.1rem;
+    padding: 1.25rem;
+  }
+  .period-title {
+    font-size: 2.25rem;
+  }
+}
+
+/* ---------- Landscape / wide screens ---------- */
+
+@media (orientation: landscape) and (min-width: 1000px) {
+  .profile-list {
+    grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  }
+  .profile-card {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    text-align: center;
+  }
+  .profile-info {
+    justify-items: center;
+    width: 100%;
+  }
+  .profile-stats {
+    justify-content: center;
+  }
+  .profile-go {
+    display: none;
+  }
+}
+
+@media (orientation: landscape) and (min-width: 1200px) {
+  .periods {
+    grid-template-columns: repeat(3, 1fr);
+    align-items: start;
+  }
+  .periods .chore-list {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------- Small screens (phones) ---------- */
+
+@media (max-width: 600px) {
+  .profile-card {
+    grid-template-columns: auto 1fr;
+    min-height: 0;
+  }
+  .profile-go {
+    display: none;
+  }
+  .avatar-xl {
+    width: 4.5rem;
+    height: 4.5rem;
+    font-size: 2.5rem;
+    border-width: 4px;
+  }
+  .avatar-lg {
+    width: 4rem;
+    height: 4rem;
+    font-size: 2.2rem;
+  }
+  .chart-hero {
+    grid-template-columns: auto 1fr;
+  }
+  .chart-points {
+    grid-column: 1 / -1;
+    grid-template-columns: auto auto auto;
+    align-items: baseline;
+    justify-content: center;
+    gap: 0.5rem;
+  }
+  .chore {
+    grid-template-columns: auto auto 1fr;
+  }
+  .chore-points {
+    grid-column: 3;
+    justify-self: start;
+  }
+  .admin-row {
+    grid-template-columns: auto 1fr;
+  }
+  .admin-actions {
+    grid-column: 1 / -1;
+    justify-content: stretch;
+  }
+  .admin-actions .button {
+    flex: 1;
+  }
+  .tabs {
+    border-radius: var(--radius);
+    align-self: stretch;
+  }
+  .tab {
+    flex: 1 1 40%;
+  }
+}
+
+/* ---------- School meals planner (parent area) ---------- */
+
+.meals-intro {
+  gap: 0.75rem;
+}
+.meal-status-list {
+  display: grid;
+  gap: 0.4rem;
+}
+.meal-status-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+.meal-status-warn {
+  color: #7a1a14;
+}
+.meal-warn-tag {
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  background: var(--danger-soft);
+  border: 1px solid #f0b8b3;
+  font-size: 0.85rem;
+  font-weight: 800;
+}
+.week-chip {
+  display: inline-grid;
+  justify-items: center;
+  line-height: 1.15;
+}
+.week-chip-count {
+  font-size: 0.8rem;
+  font-weight: 700;
+  opacity: 0.85;
+}
+.meal-days {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+  gap: 0.85rem;
+}
+.meal-day {
+  display: grid;
+  gap: 0.6rem;
+  margin: 0;
+  padding: 0.9rem 1rem 1rem;
+  border: 2px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  min-width: 0;
+}
+.meal-day > legend {
+  padding: 0 0.35rem;
+}
+.meal-day-today {
+  border-color: var(--yellow);
+  background: #fffaf0;
+}
+.meal-day-past {
+  opacity: 0.7;
+}
+.meal-today-tag {
+  margin-left: 0.5rem;
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+  background: var(--yellow);
+  color: #4a3300;
+  font-size: 0.8rem;
+}
+.meal-field {
+  display: grid;
+  gap: 0.25rem;
+}
+.meal-field-label {
+  font-weight: 800;
+  font-size: 0.95rem;
+  color: var(--ink-soft);
+}
+.meal-actions {
+  justify-content: flex-start;
+}
+.meal-actions .button-primary {
+  margin-left: auto;
+}
+
+/* ---------- School meals: view switch & food options ---------- */
+
+.view-switch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.4rem;
+  border-radius: var(--radius);
+  background: rgb(255 255 255 / 0.85);
+  border: 2px solid var(--line);
+  justify-self: start;
+}
+.view-switch-button {
+  min-height: var(--touch);
+  padding: 0.5rem 1.25rem;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font-weight: 800;
+  font-size: 1.05rem;
+}
+.view-switch-button[aria-pressed='true'] {
+  background: var(--teal);
+  color: #04332e;
+}
+.unsaved-tag {
+  margin-left: 0.75rem;
+  padding: 0.15rem 0.7rem;
+  border-radius: 999px;
+  background: #fff0c2;
+  border: 1px solid #f2c94c;
+  color: #5c4000;
+  font-size: 0.85rem;
+  vertical-align: middle;
+}
+.meal-catalog-hint {
+  border-radius: var(--radius);
+  border: 2px solid #9cc0f5;
+}
+.food-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+  gap: 1.25rem;
+  align-items: start;
+}
+.food-add {
+  display: grid;
+  gap: 0.4rem;
+}
+.food-add-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+.food-add-row .input {
+  flex: 1 1 12rem;
+}
+.food-list {
+  display: grid;
+  gap: 0.5rem;
+}
+.food-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 0.6rem 0.6rem 1rem;
+  border: 2px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+.food-name {
+  font-weight: 800;
+  font-size: 1.15rem;
+  overflow-wrap: break-word;
+  min-width: 0;
+}
+.food-usage {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+.food-usage-on {
+  color: var(--success-ink);
+}
+.usage-list {
+  max-height: 14rem;
+  overflow: auto;
+}
+
+@media (max-width: 600px) {
+  .food-row {
+    grid-template-columns: 1fr auto;
+  }
+  .food-usage {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .food-row .button {
+    grid-row: 1 / span 2;
+    grid-column: 2;
+  }
+}
+
+@media (orientation: portrait) and (min-height: 1400px) and (min-width: 900px) {
+  .select {
+    min-height: 4.25rem;
+    font-size: 1.5rem;
+  }
+  /* Wider day columns so full meal names fit in the dropdowns. */
+  .meal-days {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr));
+  }
+  .food-name {
+    font-size: 1.45rem;
+  }
+}

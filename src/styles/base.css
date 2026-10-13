@@ -1,0 +1,323 @@
+/* ============================================================
+   Design tokens, reset, typography, buttons and form basics.
+   ============================================================ */
+
+:root {
+  /* Neutrals */
+  --bg: #fff8f1;
+  --bg-dots: #ffe9d6;
+  --surface: #ffffff;
+  --surface-muted: #faf5ff;
+  --ink: #2a2140;
+  --ink-soft: #584e6e;
+  --line: #ece1d6;
+  --line-strong: #d8cbe0;
+
+  /* Brand palette */
+  --pink: #ff8fb1;
+  --teal: #2ab7a9;
+  --yellow: #ffd166;
+  --lavender: #b39cf5;
+
+  /* Semantic */
+  --primary: #5434b8;
+  --primary-hover: #452a9a;
+  --primary-ink: #ffffff;
+  --success: #1f8a57;
+  --success-soft: #dff7ea;
+  --success-ink: #165f3c;
+  --danger: #b3261e;
+  --danger-soft: #fde8e6;
+  --focus: #1a5cff;
+
+  /* Shape & depth */
+  --radius-sm: 0.75rem;
+  --radius: 1.25rem;
+  --radius-lg: 2rem;
+  --shadow-sm: 0 1px 2px rgb(42 33 64 / 0.06), 0 2px 6px rgb(42 33 64 / 0.06);
+  --shadow: 0 2px 4px rgb(42 33 64 / 0.05), 0 8px 24px rgb(42 33 64 / 0.08);
+  --shadow-lg: 0 4px 8px rgb(42 33 64 / 0.06), 0 16px 40px rgb(42 33 64 / 0.12);
+
+  --font: ui-rounded, 'SF Pro Rounded', 'Nunito', 'Segoe UI Variable Display', 'Segoe UI', system-ui, -apple-system,
+    'Helvetica Neue', Arial, sans-serif;
+  --font-emoji: 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif;
+
+  --gutter: clamp(1rem, 3vw, 2.5rem);
+  --touch: 3rem; /* minimum touch target (≥ 48 CSS px) */
+
+  color-scheme: light;
+}
+
+/* Accent colours: each sets soft (background), main and strong (text-safe) tones. */
+.accent-pink { --accent: #ff8fb1; --accent-soft: #ffe4ee; --accent-strong: #a3154a; }
+.accent-teal { --accent: #2ab7a9; --accent-soft: #d9f5f1; --accent-strong: #00665c; }
+.accent-yellow { --accent: #ffc94a; --accent-soft: #fff3d1; --accent-strong: #775200; }
+.accent-lavender { --accent: #b39cf5; --accent-soft: #eee8ff; --accent-strong: #5434b8; }
+.accent-orange { --accent: #ffa66b; --accent-soft: #ffe9d9; --accent-strong: #953f00; }
+.accent-sky { --accent: #6cc0ff; --accent-soft: #e0f1ff; --accent-strong: #0b5899; }
+.accent-mint { --accent: #74d8a6; --accent-soft: #dff7ea; --accent-strong: #1c6b44; }
+
+/* Scale everything with the viewport so a 27" portrait screen gets
+   genuinely larger UI rather than stretched small cards. */
+html {
+  font-size: clamp(16px, calc(0.75rem + 0.9vmin), 26px);
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  font-family: var(--font);
+  font-size: 1rem;
+  line-height: 1.45;
+  color: var(--ink);
+  background-color: var(--bg);
+  background-image: radial-gradient(var(--bg-dots) 1.5px, transparent 1.5px);
+  background-size: 1.75rem 1.75rem;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+/* Strong, consistent keyboard focus indicator. */
+:focus-visible {
+  outline: 4px solid var(--focus);
+  outline-offset: 3px;
+  border-radius: var(--radius-sm);
+}
+
+/* Programmatically focused headings should not show a ring. */
+[tabindex='-1']:focus {
+  outline: none;
+}
+
+.visually-hidden {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.muted {
+  color: var(--ink-soft);
+}
+
+/* ---------- Buttons ---------- */
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5em;
+  min-height: var(--touch);
+  min-width: var(--touch);
+  padding: 0.6rem 1.25rem;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 1rem;
+  line-height: 1.2;
+  text-decoration: none;
+  transition: background-color 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
+  user-select: none;
+}
+
+.button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.button-primary {
+  background: var(--primary);
+  color: var(--primary-ink);
+  box-shadow: var(--shadow-sm);
+}
+.button-primary:hover:not(:disabled) {
+  background: var(--primary-hover);
+}
+
+.button-secondary {
+  background: var(--surface);
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+.button-secondary:hover:not(:disabled) {
+  background: var(--surface-muted);
+}
+
+.button-ghost {
+  background: rgb(255 255 255 / 0.75);
+  color: var(--ink);
+  border-color: var(--line);
+}
+.button-ghost:hover:not(:disabled) {
+  background: var(--surface);
+}
+
+.button-danger {
+  background: var(--danger);
+  color: #fff;
+}
+.button-danger-outline {
+  background: var(--surface);
+  color: var(--danger);
+  border-color: #f0b8b3;
+}
+.button-danger-outline:hover:not(:disabled) {
+  background: var(--danger-soft);
+}
+
+.button-reward {
+  background: var(--yellow);
+  color: #4a3300;
+  box-shadow: var(--shadow-sm);
+}
+.button-reward:hover:not(:disabled) {
+  background: #ffc53d;
+}
+
+.button-block {
+  width: 100%;
+}
+
+.button:disabled {
+  opacity: 0.55;
+}
+
+.icon-button {
+  display: inline-grid;
+  place-items: center;
+  width: var(--touch);
+  height: var(--touch);
+  border: 2px solid var(--line);
+  border-radius: 50%;
+  background: var(--surface);
+  font-size: 1.1rem;
+}
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+}
+
+/* ---------- Forms ---------- */
+
+.form {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.field {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.field-label {
+  font-weight: 800;
+  font-size: 1.05rem;
+  padding: 0;
+}
+
+.field-hint {
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+}
+
+.field-error {
+  color: var(--danger);
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+.field-error::before {
+  content: '⚠ ';
+}
+
+.input {
+  width: 100%;
+  min-height: var(--touch);
+  padding: 0.6rem 0.9rem;
+  border: 2px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-size: 1.05rem;
+}
+.input:focus-visible {
+  border-color: var(--focus);
+}
+.input[aria-invalid='true'] {
+  border-color: var(--danger);
+  background: #fffafa;
+}
+
+.error-summary {
+  padding: 0.9rem 1.1rem;
+  border: 2px solid #f0b8b3;
+  border-radius: var(--radius-sm);
+  background: var(--danger-soft);
+  color: #7a1a14;
+}
+.error-summary ul {
+  margin-top: 0.35rem;
+  padding-left: 1.25rem;
+  list-style: disc;
+}
+
+/* ---------- Reduced motion ---------- */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

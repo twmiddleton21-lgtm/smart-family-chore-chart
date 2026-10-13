@@ -1,0 +1,42 @@
+# Smart Family Chore Chart: FRONTEND-ONLY Compose definition.
+#
+# !! NOT production-ready for family data !!
+# This runs the static frontend container only. Family data stays in each
+# browser's localStorage: nothing is stored in or shared through this
+# container, and the parent PIN is not real authentication. Do not rely on
+# it for a multi-device (kiosk + phones) setup until the shared backend in
+# docs/SHARED-DATA-PLAN.md exists.
+#
+# Deliberately:
+#   - no host port is published (only exposed on the Compose network);
+#   - no volumes: there is no data to persist in a static frontend, and a
+#     volume here would wrongly suggest shared storage;
+#   - no reverse-proxy, tunnel or external network configuration.
+#
+# Image: defaults to the published `latest` tag. Set SFCC_IMAGE to pin an
+# immutable build, e.g.
+#   ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart:sha-<full-commit-sha>
+# `docker compose build` builds a local image from this folder instead.
+#
+# For a quick local look only, publish a port in a separate, uncommitted
+# compose.override.yaml, e.g.
+#   services: { web: { ports: ["127.0.0.1:8080:8080"] } }
+# Do not add ports here.
+
+services:
+  web:
+    image: ${SFCC_IMAGE:-ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart:latest}
+    build:
+      context: .
+    restart: unless-stopped
+    expose:
+      - "8080"
+    read_only: true
+    tmpfs:
+      # nginx-unprivileged writes its pid and temp files under /tmp.
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # Health check comes from the image (GET /healthz).
