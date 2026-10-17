@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ApiError, AUTH_CHANGED_EVENT } from '../api/client';
 import { authClient, type AuthClient, type AuthStatus } from '../api/auth';
-import { confirmSignOut } from './signOut';
+import { confirmSignOut, UNCONFIRMED_PREFIX, UNKNOWN_SESSION_REASON } from './signOut';
 
 // Who is using this browser (server builds only): a signed-in parent, a
 // paired device, both, or neither. The server decides; this only mirrors
@@ -25,6 +25,12 @@ import { confirmSignOut } from './signOut';
 // this tab stays locked (`signOutSuperseded`) until someone signs in here.
 // Signing in on this tab waits for a sign-out still in progress, pauses the
 // retries, and ignores any sign-out result from before it.
+//
+// If this tab doesn't know which session it was signing out (e.g. a sign-out
+// saved by an older build), nothing is sent and nothing is retried: while
+// the server reports a parent, the screen stays locked with the warning, and
+// signing in again (which replaces the session) or the server reporting no
+// parent settles it.
 
 /** How a sign-out ended (see Access.signOut). */
 export type SignOutResult = 'confirmed' | 'unconfirmed' | 'superseded';
@@ -47,6 +53,8 @@ export interface Access {
   signingOut: boolean;
   /** Set while the server hasn't confirmed a sign-out (the screen stays locked). */
   signOutProblem: string | null;
+  /** Retrying can help (false if this screen doesn't know which session to end). */
+  canRetrySignOut: boolean;
   /** The session being signed out was replaced by a newer sign-in on this browser; this tab stays locked. */
   signOutSuperseded: boolean;
 }
@@ -110,7 +118,9 @@ export function useAccessLoader(client: AuthClient = authClient): AccessLoad {
   const [status, setStatus] = useState<AuthStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lock, setLockState] = useState<Lock>(() => stored?.lock ?? 'none');
-  const [problem, setProblem] = useState<string | null>(() => (stored?.lock === 'unconfirmed' ? RELOADED_MESSAGE : null));
+  const [problem, setProblem] = useState<string | null>(() =>
+    stored?.lock !== 'unconfirmed' ? null : stored.target ? RELOADED_MESSAGE : `${UNCONFIRMED_PREFIX}. ${UNKNOWN_SESSION_REASON}`,
+  );
   const seq = useRef(0);
   const lockRef = useRef(lock);
   /** The session the current sign-out is for. */
@@ -234,9 +244,11 @@ export function useAccessLoader(client: AuthClient = authClient): AccessLoad {
     };
   }, [refresh]);
 
-  // While a sign-out is unconfirmed, keep trying to end the session on the server.
+  // While a sign-out is unconfirmed, keep trying to end the session on the
+  // server (only possible when we know which session that is).
+  const canRetry = targetRef.current !== null;
   useEffect(() => {
-    if (lock !== 'unconfirmed') return;
+    if (lock !== 'unconfirmed' || !canRetry) return;
     const retry = () => void signOut();
     if (retryOnLoad.current) {
       retryOnLoad.current = false;
@@ -248,7 +260,7 @@ export function useAccessLoader(client: AuthClient = authClient): AccessLoad {
       window.clearInterval(timer);
       window.removeEventListener('focus', retry);
     };
-  }, [lock, signOut]);
+  }, [lock, canRetry, signOut]);
 
   if (status) {
     const shown = lock === 'none' ? status : { ...status, parent: null, sessionId: null };
@@ -262,6 +274,7 @@ export function useAccessLoader(client: AuthClient = authClient): AccessLoad {
         signOut,
         signingOut: lock === 'signing-out',
         signOutProblem: lock === 'unconfirmed' || lock === 'signing-out' ? problem : null,
+        canRetrySignOut: canRetry,
         signOutSuperseded: lock === 'superseded',
       },
     };

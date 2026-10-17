@@ -332,3 +332,84 @@ test('a sign-out answer that arrives after another tab’s sign-in doesn’t cle
   await other.close();
   await ctx.close();
 });
+
+// ---------- a sign-out that doesn't know which session to end ----------
+
+const UNKNOWN_SESSION = /doesn’t know which parent session to end/;
+
+function countLogouts(page: Page) {
+  const counter = { calls: 0 };
+  page.on('request', (r) => {
+    if (new URL(r.url()).pathname === '/api/auth/logout') counter.calls++;
+  });
+  return counter;
+}
+
+test('a sign-out saved by an older build (session unknown) sends nothing, claims nothing and stays locked', async ({ browser }) => {
+  const { ctx, page } = await signedInContext(browser);
+  // An unconfirmed sign-out as the previous build stored it (no session id).
+  await page.addInitScript(() => {
+    if (!sessionStorage.getItem('sfcc:seeded')) {
+      sessionStorage.setItem('sfcc:seeded', '1');
+      sessionStorage.setItem('sfcc:sign-out-unconfirmed', '1');
+    }
+  });
+  await page.clock.install();
+  const logout = countLogouts(page);
+  await page.goto('/');
+
+  await expect(page.getByRole('heading', { name: 'Connect this device' })).toBeVisible();
+  const warning = page.getByRole('alert').filter({ hasText: UNKNOWN_SESSION });
+  await expect(warning).toBeVisible();
+  await expect(warning).toContainText('may still be active on the server');
+  await expect(page.getByRole('button', { name: 'Try signing out again' })).toHaveCount(0);
+  await expect(page.getByText(/has ended/)).toHaveCount(0);
+
+  await page.clock.runFor(5 * 60_000); // no automatic retries
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await page.clock.runFor(60_000);
+  expect(logout.calls).toBe(0);
+  await expect(warning).toBeVisible();
+  await expect(page.getByText(/has ended/)).toHaveCount(0);
+  expect((await serverStatus(ctx)).parent).not.toBeNull(); // honest: it really is still active
+
+  // Signing in again replaces the session and settles it.
+  await page.getByRole('button', { name: 'Parent sign in' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Parent sign in' });
+  await dialog.getByLabel('Username').fill(USERNAME);
+  await dialog.getByLabel('Password').fill(PASSWORD);
+  await dialog.getByRole('button', { name: 'Sign in' }).click();
+  await expect(warning).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Connect this device' })).toHaveCount(0);
+  await ctx.close();
+});
+
+test('with a server that doesn’t report session ids, sign-out sends nothing, claims nothing and stays locked', async ({ browser }) => {
+  const { ctx, page } = await signedInContext(browser);
+  await page.route('**/api/auth/status', async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    delete body.sessionId;
+    await route.fulfill({ response, json: body });
+  });
+  const logout = countLogouts(page);
+  await openParentArea(page);
+  await page.getByRole('tab', { name: /Family access/ }).click();
+  await page.getByRole('button', { name: 'Sign out' }).click();
+
+  await expect(page.getByRole('heading', { name: 'Connect this device' })).toBeVisible();
+  const warning = page.getByRole('alert').filter({ hasText: UNKNOWN_SESSION });
+  await expect(warning).toBeVisible();
+  await expect(warning).toContainText('may still be active on the server');
+  await expect(page.getByText('Signed out.', { exact: true })).toHaveCount(0);
+  await expect(page.getByText(/has ended/)).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Try signing out again' })).toHaveCount(0);
+  expect(logout.calls).toBe(0);
+  expect((await serverStatus(ctx)).parent).not.toBeNull();
+  // A reload keeps it locked and still sends nothing.
+  await page.reload();
+  await expect(warning).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Connect this device' })).toBeVisible();
+  expect(logout.calls).toBe(0);
+  await ctx.close();
+});

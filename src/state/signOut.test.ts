@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createAuthClient, type AuthClient, type AuthStatus } from '../api/auth';
 import { ApiError, createRequester } from '../api/client';
-import { confirmSignOut, UNCONFIRMED_PREFIX } from './signOut';
+import { confirmSignOut, UNCONFIRMED_PREFIX, UNKNOWN_SESSION_REASON } from './signOut';
 
 const PARENT = { id: 'p1', username: 'sam', displayName: 'Sam' };
 const DEVICE = { id: 'd1', name: 'Kitchen tablet' };
@@ -48,7 +48,7 @@ describe('confirmSignOut', () => {
       status: async () => SIGNED_IN,
     });
     const out = await confirmSignOut(client, SIGNED_IN);
-    expect(out).toEqual({ confirmed: false, message: `${UNCONFIRMED_PREFIX}. Can’t reach the family server.` });
+    expect(out).toEqual({ confirmed: false, message: `${UNCONFIRMED_PREFIX}. Can’t reach the family server.`, retry: true });
     expect(calls).toEqual([`logout:${SID}`]);
   });
 
@@ -85,7 +85,7 @@ describe('confirmSignOut', () => {
       status: async () => SIGNED_IN,
     } as unknown as AuthClient;
     const out = await confirmSignOut(client, SIGNED_IN);
-    expect(out).toEqual({ confirmed: false, message: `${UNCONFIRMED_PREFIX}. The family server didn’t answer in time.` });
+    expect(out).toEqual({ confirmed: false, message: `${UNCONFIRMED_PREFIX}. The family server didn’t answer in time.`, retry: true });
   });
 
   it('does not confirm if the server still reports a parent afterwards', async () => {
@@ -117,17 +117,43 @@ describe('confirmSignOut', () => {
     expect(await confirmSignOut(client, SIGNED_IN)).toEqual({ confirmed: true, superseded: true, status: newer });
   });
 
-  it('never sends a sign-out without naming the session (it could end a newer one)', async () => {
-    const unknown: AuthStatus = { ...SIGNED_IN, sessionId: null };
-    const signedIn = fakeClient({ logout: async () => 'ended', status: async () => SIGNED_IN });
-    expect(await confirmSignOut(signedIn.client, unknown)).toEqual({ confirmed: true, superseded: true, status: SIGNED_IN });
-    expect(signedIn.calls).toEqual(['status']);
+  it('never sends a sign-out without naming the session, and never reports an active session as ended', async () => {
+    // The session to end is unknown (e.g. saved by an older build) while the server reports a parent.
+    for (const sessionId of [null, undefined]) {
+      const unknown = { ...SIGNED_IN, sessionId } as AuthStatus;
+      const signedIn = fakeClient({ logout: async () => 'ended', status: async () => SIGNED_IN });
+      const out = await confirmSignOut(signedIn.client, unknown);
+      expect(out).toEqual({ confirmed: false, message: `${UNCONFIRMED_PREFIX}. ${UNKNOWN_SESSION_REASON}`, retry: false });
+      expect(signedIn.calls).toEqual(['status']); // no logout of any kind
+    }
+    // Same, when the server itself doesn't report session ids.
+    const noIds = { ...SIGNED_IN, sessionId: undefined } as unknown as AuthStatus;
+    const oldServer = fakeClient({ logout: async () => 'ended', status: async () => noIds });
+    expect(await confirmSignOut(oldServer.client, noIds)).toMatchObject({ confirmed: false, retry: false });
+    expect(oldServer.calls).toEqual(['status']);
+    // Unknown, and the server can't be reached: unconfirmed too.
+    const down = fakeClient({ logout: async () => 'ended', status: async () => Promise.reject(new ApiError('unreachable', 'down')) });
+    expect(await confirmSignOut(down.client, { ...SIGNED_IN, sessionId: null })).toMatchObject({ confirmed: false, retry: false });
+    expect(down.calls).toEqual(['status']);
+    // Unknown, but the server reports no parent at all: nothing is held, so it is settled.
     const none: AuthStatus = { ...SIGNED_IN, parent: null, sessionId: null };
     const signedOut = fakeClient({ logout: async () => 'ended', status: async () => none });
-    expect(await confirmSignOut(signedOut.client, unknown)).toEqual({ confirmed: true, status: none });
-    const down = fakeClient({ logout: async () => 'ended', status: async () => Promise.reject(new ApiError('unreachable', 'down')) });
-    expect((await confirmSignOut(down.client, unknown)).confirmed).toBe(false);
-    expect(down.calls).toEqual(['status']);
+    expect(await confirmSignOut(signedOut.client, { ...SIGNED_IN, sessionId: null })).toEqual({ confirmed: true, status: none });
+    expect(signedOut.calls).toEqual(['status']);
+  });
+
+  it('a known session is never reported as ended while the server still reports it, or a session it can’t identify', async () => {
+    const noId = { ...SIGNED_IN, sessionId: undefined } as unknown as AuthStatus;
+    for (const [result, after] of [
+      ['ended', SIGNED_IN],
+      ['not_signed_in', SIGNED_IN],
+      ['ended', noId],
+      ['not_signed_in', noId],
+    ] as const) {
+      const { client } = fakeClient({ logout: async () => result, status: async () => after });
+      const out = await confirmSignOut(client, SIGNED_IN);
+      expect(out, `${result} then ${String(after.sessionId)}`).toMatchObject({ confirmed: false, retry: true });
+    }
   });
 
   it('never throws, even on unexpected errors', async () => {

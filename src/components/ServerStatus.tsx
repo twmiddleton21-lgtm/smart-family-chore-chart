@@ -110,9 +110,11 @@ export function SignOutProblemBanner() {
         ⚠️ {access.signOutProblem} The parent area is locked on this screen, but the parent session may still be active
         on the server until sign-out is confirmed.
       </span>
-      <button type="button" className="button button-ghost" disabled={access.signingOut} onClick={() => void access.signOut()}>
-        {access.signingOut ? 'Trying…' : 'Try signing out again'}
-      </button>
+      {access.canRetrySignOut && (
+        <button type="button" className="button button-ghost" disabled={access.signingOut} onClick={() => void access.signOut()}>
+          {access.signingOut ? 'Trying…' : 'Try signing out again'}
+        </button>
+      )}
     </div>
   );
 }
