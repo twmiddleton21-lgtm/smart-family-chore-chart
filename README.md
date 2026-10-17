@@ -3,7 +3,7 @@
 ![Conceptual overview of Smart Family Chore Chart: feature highlights, illustrative app screens and a Docker quick start](docs/images/readme-overview.webp)
 
 > **About this image:** it's an AI-generated **conceptual preview**, not a screenshot of the real app. The real screens look different; for example, there's no sidebar, and parents sign in with a username *and* password. Some of its wording doesn't match this project:
-> - The shared-server image is a **release candidate, not production-ready**.
+> - The shared-server image (version 0.4.0) is meant for **private networks**, and has known [security limitations](#security-limitations-of-the-shared-server).
 > - There's **no "Forgot your password?" link**; password recovery uses the server command line.
 > - **Children don't have accounts**: parents sign in, and family devices are paired.
 > - The project has **no open-source licence** (see [Licence](#licence)).
@@ -16,16 +16,16 @@ A cheerful family chore chart for a large portrait touchscreen (built and tested
 
 The app comes in two editions:
 
-| | **Browser-only app** (v0.3.0, published) | **Shared family server** (release candidate) |
+| | **Browser-only app** (v0.3.0, published) | **Shared family server** (v0.4.0) |
 |---|---|---|
 | Where data lives | In one browser on one device (localStorage) | In one SQLite database on your own server, shared by every device |
 | Parent protection | A client-side PIN (a convenience lock, **not security**) | Parent accounts with passwords, checked by the server |
 | Family devices | Each device has its own separate data | Kiosks are **paired** with one-time codes and share the same data |
-| How to get it | Published image `ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart` (`latest`) | Pre-release image `ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart-server:0.4.0-rc.1` (a separate package, no `latest`), or build it from `Dockerfile.server` |
-| Status | Released | **Release candidate for testing; not production-ready** |
+| How to get it | Published image `ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart` (`latest`) | Release image `ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart-server:0.4.0` (a separate package, no `latest`), or build it from `Dockerfile.server` |
+| Status | Released | **Version 0.4.0 for private LAN use; see the security limitations** |
 
 > **Status of the shared family server.** It's on the `feature/shared-backend` branch and hasn't been merged into `main`.
-> - **Pre-release only:** the server is published as release candidate [`server-v0.4.0-rc.1`](https://github.com/twmiddleton21-lgtm/smart-family-chore-chart/releases/tag/server-v0.4.0-rc.1), a versioned image with no `latest` tag. Install it with [`docs/INSTALL-UBUNTU.md`](docs/INSTALL-UBUNTU.md).
+> - **Versioned releases only:** the server is published as release [`server-v0.4.0`](https://github.com/twmiddleton21-lgtm/smart-family-chore-chart/releases/tag/server-v0.4.0), a versioned image with no `latest` tag (release candidate `server-v0.4.0-rc.1` remains available). Install it with [`docs/INSTALL-UBUNTU.md`](docs/INSTALL-UBUNTU.md).
 > - **Tested locally only:** it has been tested on one computer (linux/amd64) with made-up data. No deployment behind a reverse proxy or Cloudflare Tunnel has been confirmed, and Raspberry Pi (ARM) compatibility is **unverified**.
 > - **No live updates yet:** other devices show changes when they reload or regain focus.
 > - **Not ready for real family data:** see [Security limitations](#security-limitations-of-the-shared-server) before using it with real data.
@@ -89,12 +89,12 @@ One container runs the Fastify server (Node.js 24), which serves both the app an
 ### Requirements
 
 - **Docker** with the Compose plugin (Docker Engine on Linux, or Docker Desktop).
-- **Git**, only if you build the image yourself. Otherwise use the published pre-release image ([`docs/INSTALL-UBUNTU.md`](docs/INSTALL-UBUNTU.md)).
+- **Git**, only if you build the image yourself. Otherwise use the published release image ([`docs/INSTALL-UBUNTU.md`](docs/INSTALL-UBUNTU.md)).
 - About 300 MB of disk space for the image. Tested on **linux/amd64** only.
 
 ### Install and start
 
-**From the release (recommended):** follow [`docs/INSTALL-UBUNTU.md`](docs/INSTALL-UBUNTU.md). It covers copy-and-paste Ubuntu commands, `.env` settings, LAN access from another PC, backups, updates and uninstalling. The image is `ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart-server:0.4.0-rc.1` (linux/amd64); the [release page](https://github.com/twmiddleton21-lgtm/smart-family-chore-chart/releases/tag/server-v0.4.0-rc.1) lists its digest and an image archive for hosts that can't pull.
+**From the release (recommended):** follow [`docs/INSTALL-UBUNTU.md`](docs/INSTALL-UBUNTU.md). It covers copy-and-paste Ubuntu commands, `.env` settings, LAN access from another PC, backups, updates and uninstalling. The image is `ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart-server:0.4.0` (linux/amd64); the [release page](https://github.com/twmiddleton21-lgtm/smart-family-chore-chart/releases/tag/server-v0.4.0) lists its digest and an image archive for hosts that can't pull.
 
 **Or build it yourself from source:**
 
@@ -417,7 +417,7 @@ The data source is chosen at build time: the default build is browser-only, and 
 
 - **Browser-only app:** one device per data set. Clearing site data erases everything, and the PIN is client-side only.
 - **Shared family server:**
-  - **Not done yet:** a stable (non-pre-release) server image, live updates between devices, scheduled backups, and confirmed reverse-proxy, Cloudflare Tunnel or Raspberry Pi deployments.
+  - **Not done yet:** live updates between devices, scheduled backups, and confirmed reverse-proxy, Cloudflare Tunnel or Raspberry Pi deployments.
   - Also see its [security limitations](#security-limitations-of-the-shared-server).
 - **Both editions:**
   - There's no parent approval step for reward redemptions, and rewards are shared by all children.

@@ -75,4 +75,4 @@ docker image rm smart-family-chore-chart-server:$TAG   # optional: remove the im
 
 `stop` and `down` send `SIGTERM`. The server closes the database cleanly and Compose allows 30 seconds. Backup, restore and password recovery commands are in [DOCKER-SERVER.md](DOCKER-SERVER.md); add `-p sfcc-rc` to each.
 
-This is a release candidate for testing, not a production installation. Don't put real family data in it.
+This is a test installation. Try it with made-up data first; see the security limitations in the README before using real family data.

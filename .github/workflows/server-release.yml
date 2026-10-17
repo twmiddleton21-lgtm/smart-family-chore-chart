@@ -1,14 +1,16 @@
 # Smart Family Chore Chart: SHARED FAMILY SERVER release.
 #
 # Runs only when a tag named server-v<version> is pushed (e.g.
-# server-v0.4.0-rc.1). It checks and tests the code, builds Dockerfile.server
+# server-v0.4.0, or server-v0.4.0-rc.1 for a release candidate). It checks and tests the code, builds Dockerfile.server
 # for linux/amd64, smoke-tests the container, publishes it to GHCR as a
 # SEPARATE package:
 #
 #   ghcr.io/<owner>/smart-family-chore-chart-server:<version>
 #   ghcr.io/<owner>/smart-family-chore-chart-server:sha-<full commit sha>
 #
-# and creates a GitHub pre-release with the install notes and an image archive.
+# and creates a GitHub release with the install notes and an image archive:
+# a full release for a plain version (0.4.0), a pre-release for a version
+# with a suffix (0.4.0-rc.1).
 # It never publishes a "latest" tag, never touches the browser-only image
 # (ci.yml, which only runs for main), and refuses to overwrite a version
 # that already exists. Nothing is deployed.
@@ -64,6 +66,11 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${IMAGE_REPOSITORY}" >> "$GITHUB_OUTPUT"
           echo "archive=${IMAGE_REPOSITORY}-${version}-linux-amd64.tar.gz" >> "$GITHUB_OUTPUT"
+          if [[ "$version" == *-* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Set up Node.js (version from .nvmrc)
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -166,7 +173,7 @@ jobs:
           sha256sum "$ARCHIVE" > "$ARCHIVE.sha256"
           ls -l "$ARCHIVE"
 
-      - name: Create the GitHub pre-release
+      - name: Create the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
@@ -174,6 +181,7 @@ jobs:
           IMAGE: ${{ steps.v.outputs.image }}
           DIGEST: ${{ steps.push.outputs.digest }}
           ARCHIVE: ${{ steps.v.outputs.archive }}
+          PRERELEASE: ${{ steps.v.outputs.prerelease }}
         run: |
           set -euo pipefail
           {
@@ -192,11 +200,14 @@ jobs:
             echo "Archive for hosts that can't pull: \`$ARCHIVE\` (see its \`.sha256\`)."
           } > release-notes.md
           cp .env.example sfcc-server.env.example # release asset names can't start with a dot
+          if [ "$PRERELEASE" = true ]; then
+            kind=(--prerelease --latest=false --title "Shared family server $VERSION (release candidate)")
+          else
+            kind=(--latest --title "Smart Family Chore Chart Server v$VERSION")
+          fi
           gh release create "$TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
-            --prerelease \
-            --latest=false \
-            --title "Shared family server $VERSION (release candidate)" \
+            "${kind[@]}" \
             --notes-file release-notes.md \
             "$ARCHIVE" "$ARCHIVE.sha256" compose.server.yaml sfcc-server.env.example

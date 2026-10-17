@@ -1,8 +1,8 @@
-# Shared family server in Docker (release candidate)
+# Shared family server in Docker
 
 One Node.js container runs the Fastify server, which serves both the app and the API. The family data, parent accounts and paired devices live in one SQLite database under `/data`, on a named volume.
 
-This is a **local release candidate**: build it yourself with a unique tag and test it with made-up data. It is separate from the published `ghcr.io/…/smart-family-chore-chart` image, which is the browser-only app (built from `Dockerfile`/`compose.yaml`) and is not changed by any of this.
+This guide builds the image yourself with a unique tag; to install the published release instead, see [INSTALL-UBUNTU.md](INSTALL-UBUNTU.md). Test with made-up data first. It is separate from the published `ghcr.io/…/smart-family-chore-chart` image, which is the browser-only app (built from `Dockerfile`/`compose.yaml`) and is not changed by any of this.
 
 Files: `Dockerfile.server`, `compose.server.yaml`, `.env.example`, `scripts/verify-docker-rc.mjs`. Installing a published release on Ubuntu: [INSTALL-UBUNTU.md](INSTALL-UBUNTU.md). Moving the image to another host: [DOCKER-TRANSFER.md](DOCKER-TRANSFER.md). Server details: [SERVER-DEVELOPMENT.md](SERVER-DEVELOPMENT.md).
 
