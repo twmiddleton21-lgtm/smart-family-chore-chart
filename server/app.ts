@@ -25,7 +25,7 @@ import type { FamilyStore } from './family/store';
 
 export interface AppDeps {
   config: Pick<ServerConfig, 'devUnauthenticatedApi' | 'bodyLimit' | 'timeZone' | 'port' | 'dataDir'> &
-    Partial<Pick<ServerConfig, 'cookieSecure'>>;
+    Partial<Pick<ServerConfig, 'cookieSecure' | 'trustProxy'>>;
   db: SqlDatabase;
   store: FamilyStore;
   /** Required in normal mode (fails closed without it). */
@@ -141,7 +141,9 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   const app = Fastify({
     logger: deps.logger ?? false,
     bodyLimit: config.bodyLimit,
-    trustProxy: false,
+    // Only the configured reverse proxies (SFCC_TRUST_PROXY) are believed
+    // about the client address and protocol; nobody by default.
+    trustProxy: config.trustProxy?.length ? config.trustProxy : false,
     // Generic request ids; never derived from client input.
     requestIdHeader: false,
     // Strict validation: reject unknown fields and wrong types instead of

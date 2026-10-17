@@ -31,6 +31,23 @@ describe('configuration', () => {
     expect(() => loadConfig({ SFCC_DEV_UNAUTHENTICATED_API: '1', NODE_ENV: 'production' })).toThrow(/production/);
   });
 
+  it('trusts no reverse proxy by default; SFCC_TRUST_PROXY lists them explicitly', () => {
+    expect(loadConfig({}).trustProxy).toEqual([]);
+    expect(loadConfig({ SFCC_TRUST_PROXY: '' }).trustProxy).toEqual([]);
+    expect(loadConfig({ SFCC_TRUST_PROXY: '172.18.0.0/16, 127.0.0.1,::1,fd00::/8' }).trustProxy).toEqual(['172.18.0.0/16', '127.0.0.1', '::1', 'fd00::/8']);
+  });
+
+  it.each(['true', '*', 'all', '1', 'loopback', 'example.com', '10.0.0.0/33', '::/129', '10.0.0.1/8/1', '10.0.0.1,', '300.1.1.1'])(
+    'refuses SFCC_TRUST_PROXY=%s (only explicit addresses, never "trust everything")',
+    (value) => {
+      expect(() => loadConfig({ SFCC_TRUST_PROXY: value })).toThrow(ConfigError);
+    },
+  );
+
+  it('refuses a trusted proxy together with the development API', () => {
+    expect(() => loadConfig({ SFCC_DEV_UNAUTHENTICATED_API: '1', SFCC_TRUST_PROXY: '127.0.0.1' })).toThrow(/SFCC_TRUST_PROXY/);
+  });
+
   it('only the exact value "1" enables the development API', () => {
     for (const v of ['true', 'yes', '0', '']) expect(loadConfig({ SFCC_DEV_UNAUTHENTICATED_API: v }).devUnauthenticatedApi).toBe(false);
   });

@@ -1,3 +1,4 @@
+import { isIP } from 'node:net';
 import path from 'node:path';
 
 // Server configuration from environment variables. Everything has a safe
@@ -23,6 +24,13 @@ export interface ServerConfig {
   cookieSecure: 'auto' | 'always' | 'never';
   /** Optional fixed first-run setup code (otherwise a random one is printed at start-up). */
   setupCode?: string;
+  /**
+   * Reverse proxies to trust (IP addresses or CIDR ranges; empty = none).
+   * Only for requests from these addresses are X-Forwarded-For (client
+   * address, used for rate limits) and X-Forwarded-Proto (HTTPS, used for
+   * Secure cookies) believed.
+   */
+  trustProxy: string[];
 }
 
 export class ConfigError extends Error {}
@@ -65,6 +73,27 @@ function parseSetupCode(raw: string): string {
   return raw;
 }
 
+/**
+ * SFCC_TRUST_PROXY: comma-separated IP addresses or CIDR ranges of the
+ * reverse proxies in front of this server, e.g. "172.18.0.0/16" or
+ * "127.0.0.1". Never "trust everything": a forged X-Forwarded-For would then
+ * let anyone pick their own address and escape the rate limits.
+ */
+function parseTrustProxy(raw: string | undefined): string[] {
+  if (raw === undefined || raw.trim() === '') return [];
+  const entries = raw.split(',').map((e) => e.trim());
+  for (const entry of entries) {
+    const [address, bits, extra] = entry.split('/');
+    const family = isIP(address ?? '');
+    const maxBits = family === 6 ? 128 : 32;
+    const validBits = bits === undefined || (/^\d{1,3}$/.test(bits) && Number(bits) <= maxBits);
+    if (!family || !validBits || extra !== undefined) {
+      throw new ConfigError(`SFCC_TRUST_PROXY must list proxy IP addresses or CIDR ranges (comma-separated), got "${entry}".`);
+    }
+  }
+  return entries;
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()): ServerConfig {
   const production = env.NODE_ENV === 'production';
   const timeZone = env.SFCC_TIMEZONE || env.TZ || 'UTC';
@@ -81,6 +110,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.c
     bodyLimit: 64 * 1024,
     cookieSecure: parseCookieSecure(env.SFCC_COOKIE_SECURE),
     ...(env.SFCC_SETUP_CODE ? { setupCode: parseSetupCode(env.SFCC_SETUP_CODE) } : {}),
+    trustProxy: parseTrustProxy(env.SFCC_TRUST_PROXY),
   };
   assertSafeConfig(config);
   return config;
@@ -93,6 +123,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.c
  */
 export function assertSafeConfig(config: ServerConfig): void {
   if (!config.devUnauthenticatedApi) return;
+  if (config.trustProxy.length) {
+    throw new ConfigError('SFCC_TRUST_PROXY cannot be used with SFCC_DEV_UNAUTHENTICATED_API (development mode is for this computer only).');
+  }
   if (config.production) {
     throw new ConfigError('SFCC_DEV_UNAUTHENTICATED_API cannot be used with NODE_ENV=production.');
   }

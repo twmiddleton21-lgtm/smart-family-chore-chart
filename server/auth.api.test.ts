@@ -23,14 +23,14 @@ let clock: number;
 let setupCode: string;
 let logs: string[];
 
-async function start() {
+async function start(trustProxy: string[] = []) {
   opened = await openData(tmp.dir, 'Europe/London');
   clock = FIXED_NOW.getTime();
   auth = new AuthService(opened.db, { now: () => new Date(clock) });
   setupCode = auth.prepareSetup()!;
   logs = [];
   app = buildApp({
-    config: { devUnauthenticatedApi: false, bodyLimit: 64 * 1024, timeZone: 'Europe/London', port: 80, dataDir: tmp.dir, cookieSecure: 'auto' },
+    config: { devUnauthenticatedApi: false, bodyLimit: 64 * 1024, timeZone: 'Europe/London', port: 80, dataDir: tmp.dir, cookieSecure: 'auto', trustProxy },
     db: opened.db,
     store: opened.store,
     auth,
@@ -432,6 +432,55 @@ describe('a password change during a sign-in', () => {
     const r = await signingIn;
     expect(r.ok ? null : r.status).toBe(401);
     expect(sessionCount()).toBe(0);
+  });
+});
+
+// ---------- trusted reverse proxies (SFCC_TRUST_PROXY) ----------
+
+describe('reverse proxies', () => {
+  const PROXY = '172.18.0.5';
+  const wrongLogin = (client: string, remoteAddress: string) =>
+    app.inject({ method: 'POST', url: '/api/auth/login', payload: { username: `user${client}`, password: 'wrong password!' }, remoteAddress, headers: { 'x-forwarded-for': client } });
+
+  it('without a trusted proxy, X-Forwarded-For is ignored: everyone behind the proxy shares one address limit', async () => {
+    await start();
+    for (let i = 0; i < 5; i++) expect((await wrongLogin(`10.0.0.${i + 1}`, PROXY)).statusCode).toBe(401);
+    expect((await wrongLogin('10.0.0.99', PROXY)).statusCode).toBe(429);
+  });
+
+  it('behind a trusted proxy, address limits apply per real client', async () => {
+    await start(['172.18.0.0/16']);
+    for (let i = 0; i < 5; i++) expect((await wrongLogin('10.0.0.1', PROXY)).statusCode).toBe(401);
+    expect((await wrongLogin('10.0.0.1', PROXY)).statusCode).toBe(429); // that client is limited
+    expect((await wrongLogin('10.0.0.2', PROXY)).statusCode).toBe(401); // another client is not
+  });
+
+  it('a client that is not a trusted proxy can’t pick its own address with X-Forwarded-For', async () => {
+    await start(['172.18.0.0/16']);
+    for (let i = 0; i < 5; i++) expect((await wrongLogin(`10.0.0.${i + 1}`, '203.0.113.7')).statusCode).toBe(401);
+    expect((await wrongLogin('10.0.0.99', '203.0.113.7')).statusCode).toBe(429);
+  });
+
+  it('Secure cookies (auto) follow X-Forwarded-Proto only from a trusted proxy', async () => {
+    const secureFlag = async (remoteAddress: string) => {
+      const r = await app.inject({
+        method: 'POST',
+        url: '/api/auth/setup',
+        payload: { setupCode, username: 'sam', displayName: 'Sam', password: PASSWORD },
+        remoteAddress,
+        headers: { 'x-forwarded-proto': 'https' },
+      });
+      expect(r.statusCode).toBe(200);
+      return (r.cookies as { name: string; secure?: boolean }[]).find((c) => c.name === PARENT_COOKIE)!.secure === true;
+    };
+    await start(['172.18.0.0/16']);
+    expect(await secureFlag(PROXY)).toBe(true);
+    await app.close();
+    opened.db.close();
+    tmp.cleanup();
+    tmp = tempDir();
+    await start(['172.18.0.0/16']);
+    expect(await secureFlag('203.0.113.7')).toBe(false);
   });
 });
 
