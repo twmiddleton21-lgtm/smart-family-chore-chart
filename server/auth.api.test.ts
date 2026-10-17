@@ -422,6 +422,24 @@ describe('parent accounts (equal parents)', () => {
     expect((await post(null, '/api/auth/login', { username: 'sam', password: 'a brand new phrase' })).statusCode).toBe(200);
   });
 
+  it('re-entering your password (password change, removing a parent) is rate-limited too', async () => {
+    await start();
+    const sam = await setUp();
+    await post(sam, '/api/parents', { username: 'alex', displayName: 'Alex', password: PASSWORD_2 });
+    const alexId = auth.listParents().find((p) => p.username === 'alex')!.id;
+    // A stolen session can't be used to guess the password: 5 wrong tries across both routes...
+    for (let i = 0; i < 3; i++) expect((await post(sam, '/api/account/password', { currentPassword: `guess ${i} password`, newPassword: 'a brand new phrase' })).statusCode).toBe(403);
+    for (let i = 0; i < 2; i++) expect((await post(sam, `/api/parents/${alexId}/remove`, { password: `guess ${i + 3} password` })).statusCode).toBe(403);
+    // ...then even the right password is refused for a while.
+    const blocked = await post(sam, '/api/account/password', { currentPassword: PASSWORD, newPassword: 'a brand new phrase' });
+    expect(blocked.statusCode).toBe(429);
+    expect(blocked.headers['retry-after']).toBeDefined();
+    expect((await post(sam, `/api/parents/${alexId}/remove`, { password: PASSWORD })).statusCode).toBe(429);
+    expect(auth.listParents()).toHaveLength(2);
+    clock += 16 * MINUTE;
+    expect((await post(sam, '/api/account/password', { currentPassword: PASSWORD, newPassword: 'a brand new phrase' })).statusCode).toBe(200);
+  });
+
   it('there is no API to change another parent’s password', async () => {
     await start();
     const sam = await setUp();

@@ -296,13 +296,29 @@ export class AuthService {
     }
   }
 
+  /**
+   * Re-check a signed-in parent's own password before a sensitive change.
+   * Rate-limited per parent, so a stolen session can't be used to guess the
+   * password.
+   */
+  private async reauthenticate(parentId: string, password: unknown, hash: string, wrongMessage: string): Promise<AuthError | null> {
+    const key = `reauth:parent:${parentId}`;
+    const wait = this.limiter.retryAfter(key, LIMITS.login);
+    if (wait) return err(429, 'too_many_attempts', 'Too many wrong passwords. Please wait and try again.', wait);
+    if (!(await verifyPassword(typeof password === 'string' ? password : '', hash))) {
+      this.limiter.fail(key);
+      return err(403, 'wrong_password', wrongMessage);
+    }
+    this.limiter.succeed(key);
+    return null;
+  }
+
   /** Remove a parent (any parent may, re-entering their own password). Never the last one. */
   async removeParent(actorId: string, targetId: string, actorPassword: unknown): Promise<Ok<{ removedSelf: boolean }> | AuthError> {
     const actor = this.db.get<{ password_hash: string }>('SELECT password_hash FROM parents WHERE id = ?', actorId);
     if (!actor) return err(401, 'unauthenticated', 'Please sign in again.');
-    if (!(await verifyPassword(typeof actorPassword === 'string' ? actorPassword : '', actor.password_hash))) {
-      return err(403, 'wrong_password', 'Your password isn’t right.');
-    }
+    const denied = await this.reauthenticate(actorId, actorPassword, actor.password_hash, 'Your password isn’t right.');
+    if (denied) return denied;
     return this.db.transaction((): Ok<{ removedSelf: boolean }> | AuthError => {
       if (!this.db.get('SELECT id FROM parents WHERE id = ?', targetId)) return err(404, 'not_found', 'That parent account no longer exists.');
       const count = Number(this.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM parents')!.n);
@@ -317,9 +333,8 @@ export class AuthService {
   async changeOwnPassword(parentId: string, currentPassword: unknown, newPassword: unknown, keepSessionHash: string | null): Promise<Ok<object> | AuthError> {
     const row = this.db.get<{ username: string; password_hash: string }>('SELECT username, password_hash FROM parents WHERE id = ?', parentId);
     if (!row) return err(401, 'unauthenticated', 'Please sign in again.');
-    if (!(await verifyPassword(typeof currentPassword === 'string' ? currentPassword : '', row.password_hash))) {
-      return err(403, 'wrong_password', 'Your current password isn’t right.');
-    }
+    const denied = await this.reauthenticate(parentId, currentPassword, row.password_hash, 'Your current password isn’t right.');
+    if (denied) return denied;
     const problem = validatePassword(newPassword, row.username);
     if (problem) return err(422, 'invalid_password', problem);
     const hash = await hashPassword(newPassword as string);
