@@ -60,7 +60,9 @@ To open the dev server from other devices on your network, run `npm run dev -- -
 | `npm run preview` | Serve the built `dist/` on port 4174. |
 | `npm test` | Run the Vitest unit tests once. |
 | `npm run test:watch` | Tests in watch mode. |
-| `npm run typecheck` | TypeScript check only. |
+| `npm run typecheck` | TypeScript check (frontend and server). |
+
+**Server (in development, not used by the app yet):** a backend with a SQLite database is being built for shared multi-device data. It currently has **no authentication** and its data API is disabled unless explicitly started in a loopback-only development mode. See [`docs/SERVER-DEVELOPMENT.md`](docs/SERVER-DEVELOPMENT.md).
 
 To change the dev port, edit `PORT` in `vite.config.ts` and the `--port` values in `package.json`.
 

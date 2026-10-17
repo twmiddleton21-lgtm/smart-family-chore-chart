@@ -242,3 +242,24 @@ describe('reset', () => {
     expect(loadData(storage, MONDAY).data.settings.familyName).toBe(fresh.settings.familyName);
   });
 });
+
+describe('pinRequired option (server documents)', () => {
+  it('default (browser): a missing PIN is treated as a repair and falls back to the demo PIN', () => {
+    const { settings: _s, ...rest } = makeFamily();
+    const parsed = parseFamilyData({ ...rest, settings: { familyName: 'Test Family', mealReminderDismissedOn: null } });
+    expect(parsed?.repaired).toBe(true);
+    expect(parsed?.data.settings.parentPin).toBe('1234');
+  });
+
+  it('pinRequired: false accepts settings without a PIN and never invents one', () => {
+    const { settings: _s, ...rest } = makeFamily();
+    const parsed = parseFamilyData({ ...rest, settings: { familyName: 'Test Family', mealReminderDismissedOn: null } }, { pinRequired: false });
+    expect(parsed?.repaired).toBe(false);
+    expect(parsed?.data.settings.parentPin).toBe('');
+  });
+
+  it('pinRequired: false ignores a PIN that is present', () => {
+    const parsed = parseFamilyData(JSON.parse(JSON.stringify(makeFamily())), { pinRequired: false });
+    expect(parsed?.data.settings.parentPin).toBe('');
+  });
+});

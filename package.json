@@ -9,20 +9,27 @@
   },
   "scripts": {
     "dev": "vite --port 4174 --strictPort",
+    "dev:server": "tsx watch server/main.ts --dev-unauthenticated-api",
     "build": "tsc --noEmit && vite build",
+    "build:server": "vite build --config vite.server.config.ts",
     "preview": "vite preview --port 4174 --strictPort",
-    "typecheck": "tsc --noEmit",
+    "start:server": "node dist-server/main.js",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p server/tsconfig.json",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "server:cli": "tsx server/cli.ts"
   },
   "dependencies": {
+    "fastify": "5.12.5",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
   },
   "devDependencies": {
+    "@types/node": "24.19.2",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
+    "tsx": "4.23.15",
     "typescript": "~6.0.3",
     "vite": "^8.3.4",
     "vitest": "^5.0.4"

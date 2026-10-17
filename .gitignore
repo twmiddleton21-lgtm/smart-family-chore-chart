@@ -1,5 +1,9 @@
 node_modules
 dist
+dist-server
+
+# Local server data (SQLite database and backups) - never commit family data
+data/
 *.log
 .DS_Store
 coverage

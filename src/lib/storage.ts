@@ -147,8 +147,13 @@ function cleanFoodList(raw: unknown): { items: FoodOption[]; dropped: boolean } 
   return { items, dropped: byId.dropped || items.length !== byId.items.length };
 }
 
-function toSettings(v: unknown): Settings | null {
+function toSettings(v: unknown, pinRequired: boolean): Settings | null {
   if (!isObj(v) || !isStr(v.familyName, 60)) return null;
+  if (!pinRequired) {
+    // Server-side documents never hold the legacy client-side PIN.
+    const dismissed = isDateKey(v.mealReminderDismissedOn) ? v.mealReminderDismissedOn : null;
+    return { familyName: v.familyName, parentPin: '', mealReminderDismissedOn: dismissed };
+  }
   if (typeof v.parentPin !== 'string' || !/^\d{4,8}$/.test(v.parentPin)) return null;
   // Added in v2; absent in v1 data.
   const dismissed = isDateKey(v.mealReminderDismissedOn) ? v.mealReminderDismissedOn : null;
@@ -169,6 +174,15 @@ function cleanList<T extends { id: string }>(raw: unknown[], convert: (v: unknow
   return { items, dropped: items.length !== raw.length };
 }
 
+export interface ParseOptions {
+  /**
+   * The browser app keeps a client-side PIN in its settings (default: true).
+   * The server stores family data without it, so it passes false: any PIN is
+   * ignored and `settings.parentPin` comes back as ''.
+   */
+  pinRequired?: boolean;
+}
+
 export interface ParsedData {
   data: FamilyData;
   /** Some invalid records were dropped. */
@@ -184,7 +198,8 @@ export interface ParsedData {
  * derived from the existing meal names. Individual invalid records are
  * dropped and reported via `repaired`.
  */
-export function parseFamilyData(value: unknown): ParsedData | null {
+export function parseFamilyData(value: unknown, options: ParseOptions = {}): ParsedData | null {
+  const pinRequired = options.pinRequired ?? true;
   if (!isObj(value) || (value.version !== 1 && value.version !== 2 && value.version !== DATA_VERSION)) return null;
   const version = value.version as 1 | 2 | 3;
   const migrated = version !== DATA_VERSION;
@@ -240,7 +255,7 @@ export function parseFamilyData(value: unknown): ParsedData | null {
     puddings = { items: derived.puddings, dropped: false };
   }
 
-  const settings = toSettings(value.settings);
+  const settings = toSettings(value.settings, pinRequired);
 
   const repaired =
     children.dropped ||
@@ -258,7 +273,7 @@ export function parseFamilyData(value: unknown): ParsedData | null {
   return {
     data: {
       version: DATA_VERSION,
-      settings: settings ?? { familyName: 'Our Family', parentPin: DEFAULT_PIN, mealReminderDismissedOn: null },
+      settings: settings ?? { familyName: 'Our Family', parentPin: pinRequired ? DEFAULT_PIN : '', mealReminderDismissedOn: null },
       children: children.items,
       chores: chores.items,
       rewards: rewards.items,
