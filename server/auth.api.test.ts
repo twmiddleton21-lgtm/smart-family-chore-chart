@@ -381,6 +381,60 @@ describe('parent sign-in', () => {
 
 // ---------- session expiry ----------
 
+// ---------- password changes racing a sign-in (Finding 3) ----------
+
+describe('a password change during a sign-in', () => {
+  const parentSessions = (id: string) =>
+    Number(opened.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM sessions WHERE kind = 'parent' AND parent_id = ?", id)!.n);
+
+  it('a reset (e.g. reset-password from the command line) while the old password is being checked: no session survives', async () => {
+    await start();
+    await setUp();
+    const id = auth.listParents()[0]!.id;
+    const newHash = await hashPassword('a brand new passphrase');
+    // The sign-in has read the old hash and is checking it (slow, async)...
+    const signingIn = auth.login('sam', PASSWORD, false, '10.0.0.9');
+    // ...when the password is reset in one step (as resetPassword does).
+    opened.db.transaction(() => {
+      opened.db.run('UPDATE parents SET password_hash = ? WHERE id = ?', newHash, id);
+      opened.db.run("DELETE FROM sessions WHERE kind = 'parent' AND parent_id = ?", id);
+    });
+    const r = await signingIn;
+    expect(r.ok).toBe(false);
+    expect(r.ok ? null : r.status).toBe(401);
+    expect(parentSessions(id)).toBe(0);
+    // The new password works; the old one doesn't.
+    expect((await auth.login('sam', 'a brand new passphrase', false, '10.0.0.9')).ok).toBe(true);
+    expect((await auth.login('sam', PASSWORD, false, '10.0.0.9')).ok).toBe(false);
+  });
+
+  it('an in-app password change racing a sign-in with the old password never leaves that sign-in valid', async () => {
+    await start();
+    const jar = await setUp();
+    const keep = (await get(jar, '/api/auth/status')).json().sessionId;
+    const [login] = await Promise.all([
+      auth.login('sam', PASSWORD, false, '10.0.0.8'),
+      post(jar, '/api/account/password', { currentPassword: PASSWORD, newPassword: 'a brand new passphrase' }),
+    ]);
+    if (login.ok) {
+      const r = await req(null, { method: 'GET', url: '/api/parents', cookies: { [PARENT_COOKIE]: login.token } });
+      expect(r.statusCode).toBe(401); // signed out by the change
+    }
+    expect((await get(jar, '/api/auth/status')).json().sessionId).toBe(keep); // the changer stays signed in
+  });
+
+  it('an account removed while its password is being checked: refused cleanly, no session', async () => {
+    await start();
+    await setUp();
+    const id = auth.listParents()[0]!.id;
+    const signingIn = auth.login('sam', PASSWORD, false, '10.0.0.7');
+    opened.db.run('DELETE FROM parents WHERE id = ?', id);
+    const r = await signingIn;
+    expect(r.ok ? null : r.status).toBe(401);
+    expect(sessionCount()).toBe(0);
+  });
+});
+
 describe('session expiry', () => {
   it('a parent session ends after 30 idle minutes', async () => {
     await start();

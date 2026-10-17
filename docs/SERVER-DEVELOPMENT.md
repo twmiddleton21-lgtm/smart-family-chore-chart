@@ -91,6 +91,7 @@ Codes are 8 characters from an unambiguous alphabet, **work once** and **expire 
 ### Security measures
 
 - **Passwords:** scrypt (N=2¹⁵, r=8, p=1, random 16-byte salt); at least 10 characters, not a very common password, not containing the username. Unknown usernames are checked against a dummy hash so timing doesn't reveal which accounts exist, and all sign-in failures get the same message.
+- **Sign-in and password changes:** a sign-in creates its session only if the password hash is still the one it checked, so a password change or reset (or removing the account) during the check can't leave a session behind.
 - **Rate limits** (sliding 15-minute windows):
   - Sign-in: at most 5 failed attempts per account **and** per address; the next attempt, even with the right password, is refused (429, `Retry-After`) until the oldest failure is 15 minutes old.
   - Re-entering your own password (password change, removing a parent): at most 5 failed attempts per parent, shared across both actions, so a stolen session can't be used to guess the password. This is separate from the sign-in limit.

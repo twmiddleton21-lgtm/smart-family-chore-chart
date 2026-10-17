@@ -183,10 +183,18 @@ export class AuthService {
     // Always run the hash, even for unknown users, so timing doesn't reveal accounts.
     const valid = await verifyPassword(pw, row ? row.password_hash : await dummyPasswordHash());
     if (!row || !valid || pw === '') return err(401, 'invalid_credentials', INVALID_LOGIN);
+    // The check above took time: if the password was changed or reset (or the
+    // account removed) meanwhile, the password just checked is no longer
+    // valid, and a session created now would survive the change.
+    const token = this.db.transaction(() => {
+      const current = this.db.get<{ password_hash: string }>('SELECT password_hash FROM parents WHERE id = ?', row.id);
+      return current?.password_hash === row.password_hash ? this.createSession('parent', row.id, remember) : null;
+    });
+    if (!token) return err(401, 'invalid_credentials', INVALID_LOGIN);
     attempt.release();
     this.purgeExpired();
     const parent = { id: row.id, username: row.username, displayName: row.display_name };
-    return { ok: true, parent, token: this.createSession('parent', row.id, remember) };
+    return { ok: true, parent, token };
   }
 
   /** Delete the session for this token (if any). Safe to call repeatedly. */
