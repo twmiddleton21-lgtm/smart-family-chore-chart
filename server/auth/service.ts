@@ -142,7 +142,6 @@ export class AuthService {
     });
     if (!created) return err(409, 'setup_complete', 'This family server is already set up. Please sign in.');
     this.setupCodeHash = null;
-    this.limiter.succeed(key);
     return { ok: true, parent: created, token: this.createSession('parent', created.id, false) };
   }
 
@@ -165,18 +164,16 @@ export class AuthService {
 
   async login(username: unknown, password: unknown, remember: boolean, ip: string): Promise<Ok<{ parent: ParentInfo; token: string }> | AuthError> {
     const user = typeof username === 'string' ? username.trim().toLowerCase() : '';
-    const keys = [`login:ip:${ip}`, `login:user:${user}`];
-    const wait = Math.max(...keys.map((k) => this.limiter.retryAfter(k, LIMITS.login)));
-    if (wait) return err(429, 'too_many_attempts', 'Too many sign-in attempts. Please wait and try again.', wait);
+    // Counted before the (slow, async) hash so simultaneous guesses can't all
+    // get through; released only if this attempt succeeds (see rateLimit.ts).
+    const attempt = this.limiter.begin([`login:ip:${ip}`, `login:user:${user}`], LIMITS.login);
+    if (!attempt.allowed) return err(429, 'too_many_attempts', 'Too many sign-in attempts. Please wait and try again.', attempt.retryAfter);
     const row = user ? this.db.get<ParentRow & Record<string, unknown>>('SELECT id, username, display_name, password_hash FROM parents WHERE username = ?', user) : undefined;
     const pw = typeof password === 'string' ? password : '';
-    // Count the attempt as a failure BEFORE the (slow, async) hash, so many
-    // concurrent guesses can't all pass the check above; success clears it.
-    for (const k of keys) this.limiter.fail(k);
     // Always run the hash, even for unknown users, so timing doesn't reveal accounts.
     const valid = await verifyPassword(pw, row ? row.password_hash : await dummyPasswordHash());
     if (!row || !valid || pw === '') return err(401, 'invalid_credentials', INVALID_LOGIN);
-    for (const k of keys) this.limiter.succeed(k);
+    attempt.release();
     this.purgeExpired();
     const parent = { id: row.id, username: row.username, displayName: row.display_name };
     return { ok: true, parent, token: this.createSession('parent', row.id, remember) };
@@ -302,13 +299,11 @@ export class AuthService {
    * password.
    */
   private async reauthenticate(parentId: string, password: unknown, hash: string, wrongMessage: string): Promise<AuthError | null> {
-    const key = `reauth:parent:${parentId}`;
-    const wait = this.limiter.retryAfter(key, LIMITS.login);
-    if (wait) return err(429, 'too_many_attempts', 'Too many wrong passwords. Please wait and try again.', wait);
-    // Counted before the async hash so concurrent guesses can't slip past (see login).
-    this.limiter.fail(key);
+    // Counted before the async hash, released only on success (see login).
+    const attempt = this.limiter.begin([`reauth:parent:${parentId}`], LIMITS.login);
+    if (!attempt.allowed) return err(429, 'too_many_attempts', 'Too many wrong passwords. Please wait and try again.', attempt.retryAfter);
     if (!(await verifyPassword(typeof password === 'string' ? password : '', hash))) return err(403, 'wrong_password', wrongMessage);
-    this.limiter.succeed(key);
+    attempt.release();
     return null;
   }
 
@@ -386,7 +381,7 @@ export class AuthService {
       this.limiter.fail(key);
       return err(401, 'invalid_code', 'That pairing code isn’t valid. Codes work once and expire after 10 minutes.');
     }
-    this.limiter.succeed(key);
+    // A success doesn't erase earlier wrong codes from this address (see rateLimit.ts).
     return result;
   }
 

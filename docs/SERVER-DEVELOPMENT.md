@@ -88,7 +88,14 @@ Codes are 8 characters from an unambiguous alphabet, **work once** and **expire 
 ### Security measures
 
 - **Passwords:** scrypt (N=2¹⁵, r=8, p=1, random 16-byte salt); at least 10 characters, not a very common password, not containing the username. Unknown usernames are checked against a dummy hash so timing doesn't reveal which accounts exist, and all sign-in failures get the same message.
-- **Rate limits:** sign-in locks for 15 minutes after 5 failures (per account and per address); re-entering your own password (password change, removing a parent) locks for 15 minutes after 5 wrong tries per parent, so a stolen session can't be used to guess the password; setup and pairing codes allow 10 wrong tries per 15 minutes per address. Limits are in memory and reset when the server restarts.
+- **Rate limits** (sliding 15-minute windows):
+  - Sign-in: at most 5 failed attempts per account **and** per address; the next attempt, even with the right password, is refused (429, `Retry-After`) until the oldest failure is 15 minutes old.
+  - Re-entering your own password (password change, removing a parent): at most 5 failed attempts per parent, shared across both actions, so a stolen session can't be used to guess the password. This is separate from the sign-in limit.
+  - Setup and pairing codes: at most 10 wrong codes per address.
+  - Each wrong attempt counts once. Password attempts are counted the moment they start (before the slow password check), so simultaneous guesses can't get past the limit. A successful attempt removes only its own count: it is never counted as a failure, and it does **not** erase earlier failures. A parent who mistypes 4 times and then signs in can mistype once more within those 15 minutes before being made to wait.
+  - **Process-local:** the counters live only in the server process's memory. They are not stored in the database, are not shared between processes, and **reset whenever the server restarts** (including a container restart, or a reload under `dev:server:auth`). Running more than one server process against the same database would give each its own counters (not a supported setup). `reset-password` doesn't clear them: a locked-out parent waits out the window, or the server is restarted.
+  - Memory is bounded: keys whose attempts are all older than 15 minutes are dropped once more than 10,000 keys are held.
+  - Behind a reverse proxy every client appears to come from the proxy's address, so the per-address limits would be shared by everyone (to be configured in the packaging stage).
 - **CSRF:** every non-GET request is refused (**403 `cross_site_request`**) if `Sec-Fetch-Site` is anything other than `same-origin`/`none`, or if `Origin` doesn't match `Host`. Together with SameSite=Strict cookies and JSON-only bodies, this blocks forged requests from other websites, including sign-in CSRF.
 - **Order of checks:** cross-site check → authentication → route permission → body parsing and validation → handler. Unauthenticated callers never get their body parsed, so they can't see validation errors or make the server read large bodies.
 - **Fail closed:** normal mode can't start without the authentication service; invalid `SFCC_COOKIE_SECURE` or `SFCC_SETUP_CODE` stops the server; expired or unknown sessions are treated as signed out (and expired ones deleted).
@@ -179,4 +186,4 @@ Server routes (parent only): `GET /api/export`, `POST /api/import/preview {data}
 
 ## Not done yet (later stages)
 
-Live updates (D); Docker Compose installation, HTTPS guidance and serving the frontend from this server (E). Rate-limit counters are in memory only (reset on restart). There's no e-mail password reset (by design; use the server command line).
+Live updates (D); Docker Compose installation, HTTPS guidance and serving the frontend from this server (E). Rate-limit counters are process-local memory only (reset on restart; see *Security measures*). There's no e-mail password reset (by design; use the server command line).

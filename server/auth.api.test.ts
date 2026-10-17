@@ -477,6 +477,111 @@ describe('parent accounts (equal parents)', () => {
   });
 });
 
+// ---------- rate limiting: exact counts, concurrency, recovery ----------
+
+describe('rate limiting of password checks', () => {
+  const WINDOW = 15 * MINUTE;
+  const login = (username: string, password: string) => post(null, '/api/auth/login', { username, password });
+  const statuses = (rs: LightMyRequestResponse[]) => rs.map((r) => r.statusCode).sort();
+
+  it('sequential: each wrong password counts once; exactly 5 are checked, the 6th is refused', async () => {
+    await start();
+    await setUp();
+    const t0 = clock;
+    for (let i = 1; i <= 5; i++) expect((await login('sam', `wrong ${i} password`)).statusCode, `attempt ${i}`).toBe(401);
+    const sixth = await login('sam', 'wrong 6 password');
+    expect(sixth.statusCode).toBe(429);
+    expect(sixth.headers['retry-after']).toBe(String(WINDOW / 1000));
+    expect((await login('sam', PASSWORD)).statusCode).toBe(429); // even the right password
+    // Recovery: still refused 1 ms before the window ends, allowed once it has.
+    clock = t0 + WINDOW - 1;
+    expect((await login('sam', PASSWORD)).statusCode).toBe(429);
+    clock = t0 + WINDOW;
+    expect((await login('sam', PASSWORD)).statusCode).toBe(200);
+  });
+
+  it('a successful sign-in doesn’t erase other failures from the same address', async () => {
+    await start();
+    const sam = await setUp();
+    await post(sam, '/api/parents', { username: 'alex', displayName: 'Alex', password: PASSWORD_2 });
+    // Someone with their own account guesses at other usernames, signing in
+    // to their own account in between to try to reset the per-address limit.
+    for (let i = 1; i <= 4; i++) expect((await login(`ghost${i}`, 'some guess here')).statusCode).toBe(401);
+    expect((await login('alex', PASSWORD_2)).statusCode).toBe(200);
+    expect((await login('ghost5', 'some guess here')).statusCode).toBe(401); // 5th failure from this address
+    expect((await login('ghost6', 'some guess here')).statusCode).toBe(429);
+  });
+
+  it('concurrent: of 20 simultaneous wrong passwords exactly 5 are checked', async () => {
+    await start();
+    await setUp();
+    const rs = await Promise.all(Array.from({ length: 20 }, (_, i) => login('sam', `parallel ${i} guess`)));
+    expect(rs.filter((r) => r.statusCode === 401)).toHaveLength(5);
+    expect(rs.filter((r) => r.statusCode === 429)).toHaveLength(15);
+    expect((await login('sam', PASSWORD)).statusCode).toBe(429);
+  });
+
+  it('concurrent wrong passwords mixed with the right one: the success un-counts only itself', async () => {
+    await start();
+    await setUp();
+    const rs = await Promise.all([
+      login('sam', 'parallel 1 guess'),
+      login('sam', 'parallel 2 guess'),
+      login('sam', PASSWORD),
+      login('sam', 'parallel 3 guess'),
+      login('sam', 'parallel 4 guess'),
+    ]);
+    expect(statuses(rs)).toEqual([200, 401, 401, 401, 401]);
+    // Those 4 failures still count: one more wrong try is checked, then the limit applies.
+    expect((await login('sam', 'one more guess')).statusCode).toBe(401);
+    expect((await login('sam', 'and another guess')).statusCode).toBe(429);
+    expect((await login('sam', PASSWORD)).statusCode).toBe(429);
+  });
+
+  it('a successful sign-in is never counted as a failure', async () => {
+    await start();
+    await setUp();
+    for (let i = 0; i < 12; i++) expect((await login('sam', PASSWORD)).statusCode).toBe(200);
+    for (let i = 1; i <= 5; i++) expect((await login('sam', `wrong ${i} password`)).statusCode).toBe(401);
+    expect((await login('sam', 'wrong 6 password')).statusCode).toBe(429);
+  });
+
+  it('password re-checks: concurrent wrong passwords mixed with the right one, then recovery', async () => {
+    await start();
+    const sam = await setUp();
+    const t0 = clock;
+    const change = (current: string) => post(sam, '/api/account/password', { currentPassword: current, newPassword: 'a brand new phrase' });
+    const rs = await Promise.all([change('parallel 1 guess'), change('parallel 2 guess'), change(PASSWORD), change('parallel 3 guess'), change('parallel 4 guess')]);
+    expect(statuses(rs)).toEqual([200, 403, 403, 403, 403]);
+    // The password is now 'a brand new phrase'. 4 wrong tries still count.
+    expect((await change('one more guess')).statusCode).toBe(403);
+    const blocked = await change('a brand new phrase');
+    expect(blocked.statusCode).toBe(429);
+    expect(blocked.headers['retry-after']).toBe(String(WINDOW / 1000));
+    clock = t0 + WINDOW - 1;
+    expect((await change('a brand new phrase')).statusCode).toBe(429);
+    clock = t0 + WINDOW;
+    expect((await change('a brand new phrase')).statusCode).toBe(200);
+  });
+
+  it('password re-checks share one limit across password change and parent removal, concurrently too', async () => {
+    await start();
+    const sam = await setUp();
+    await post(sam, '/api/parents', { username: 'alex', displayName: 'Alex', password: PASSWORD_2 });
+    const alexId = auth.listParents().find((p) => p.username === 'alex')!.id;
+    const rs = await Promise.all([
+      ...Array.from({ length: 6 }, (_, i) => post(sam, '/api/account/password', { currentPassword: `guess ${i} password`, newPassword: 'a brand new phrase' })),
+      ...Array.from({ length: 6 }, (_, i) => post(sam, `/api/parents/${alexId}/remove`, { password: `guess ${i} password` })),
+    ]);
+    expect(rs.filter((r) => r.statusCode === 403)).toHaveLength(5);
+    expect(rs.filter((r) => r.statusCode === 429)).toHaveLength(7);
+    expect((await post(sam, `/api/parents/${alexId}/remove`, { password: PASSWORD })).statusCode).toBe(429);
+    expect(auth.listParents()).toHaveLength(2);
+    // Sign-in limits are separate: the parent can still sign in elsewhere.
+    expect((await login('sam', PASSWORD)).statusCode).toBe(200);
+  });
+});
+
 // ---------- device pairing ----------
 
 describe('device pairing', () => {
