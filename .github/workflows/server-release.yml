@@ -1,0 +1,202 @@
+# Smart Family Chore Chart: SHARED FAMILY SERVER release.
+#
+# Runs only when a tag named server-v<version> is pushed (e.g.
+# server-v0.4.0-rc.1). It checks and tests the code, builds Dockerfile.server
+# for linux/amd64, smoke-tests the container, publishes it to GHCR as a
+# SEPARATE package:
+#
+#   ghcr.io/<owner>/smart-family-chore-chart-server:<version>
+#   ghcr.io/<owner>/smart-family-chore-chart-server:sha-<full commit sha>
+#
+# and creates a GitHub pre-release with the install notes and an image archive.
+# It never publishes a "latest" tag, never touches the browser-only image
+# (ci.yml, which only runs for main), and refuses to overwrite a version
+# that already exists. Nothing is deployed.
+#
+# Third-party actions are pinned to full commit SHAs (version in the comment),
+# the same versions as ci.yml.
+
+name: Server release
+
+on:
+  push:
+    tags:
+      - 'server-v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: server-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE_REPOSITORY: smart-family-chore-chart-server
+
+jobs:
+  release:
+    name: Test, publish the server image and create the release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: write # create the GitHub Release (built-in GITHUB_TOKEN)
+      packages: write # publish to GHCR (built-in GITHUB_TOKEN)
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Version and image name
+        id: v
+        run: |
+          version="${GITHUB_REF_NAME#server-v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME is not server-v<semver>"; exit 1
+          fi
+          pkg="$(node -p "require('./package.json').version")"
+          if [ "$pkg" != "$version" ]; then
+            echo "::error::package.json version ($pkg) doesn't match the tag ($version)"; exit 1
+          fi
+          if [ ! -f "docs/releases/server-v$version.md" ]; then
+            echo "::error::Missing release notes docs/releases/server-v$version.md"; exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${IMAGE_REPOSITORY}" >> "$GITHUB_OUTPUT"
+          echo "archive=${IMAGE_REPOSITORY}-${version}-linux-amd64.tar.gz" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Node.js (version from .nvmrc)
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies from the lockfile
+        run: npm ci --no-audit --no-fund
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Unit and server tests
+        run: npm test
+
+      - name: Production builds (app and server)
+        run: npm run build:app && npm run build:server
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Refuse to overwrite an existing version
+        env:
+          IMAGE: ${{ steps.v.outputs.image }}
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          if docker buildx imagetools inspect "$IMAGE:$VERSION" > /dev/null 2>&1; then
+            echo "::error::$IMAGE:$VERSION already exists; versions are immutable. Use a new version."; exit 1
+          fi
+
+      - name: Build the image (linux/amd64)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: Dockerfile.server
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: |
+            ${{ steps.v.outputs.image }}:${{ steps.v.outputs.version }}
+            ${{ steps.v.outputs.image }}:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.v.outputs.version }}
+
+      - name: Smoke test the container
+        env:
+          IMAGE: ${{ steps.v.outputs.image }}:${{ steps.v.outputs.version }}
+        run: |
+          set -euo pipefail
+          docker run -d --name smoke -p 127.0.0.1:3000:3000 --read-only --tmpfs /tmp --cap-drop ALL \
+            --mount type=volume,dst=/data "$IMAGE"
+          for i in $(seq 1 60); do
+            [ "$(docker inspect -f '{{.State.Health.Status}}' smoke)" = healthy ] && break
+            sleep 1
+          done
+          docker inspect -f '{{.State.Health.Status}}' smoke | grep -qx healthy
+          test "$(docker exec smoke id -u)" = 1000
+          test "$(docker exec smoke printenv NODE_ENV)" = production
+          curl -fsS http://127.0.0.1:3000/readyz | grep -q '"ready"'
+          curl -fsS http://127.0.0.1:3000/ | grep -qi '<!doctype html>'
+          curl -fsS http://127.0.0.1:3000/api/auth/status | grep -q '"setupRequired":true'
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/api/state)" = 401
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: evil.example' http://127.0.0.1:3000/api/auth/status)" = 421
+          docker logs smoke 2>&1 | grep -q 'FIRST-RUN SETUP'
+          if docker run --rm -e SFCC_DEV_UNAUTHENTICATED_API=1 "$IMAGE"; then
+            echo "::error::development mode started in the production image"; exit 1
+          fi
+          docker rm -f -v smoke
+
+      - name: Publish the image
+        id: push
+        env:
+          IMAGE: ${{ steps.v.outputs.image }}
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          set -euo pipefail
+          docker push "$IMAGE:$VERSION"
+          docker push "$IMAGE:sha-$GITHUB_SHA"
+          digest="$(docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE:$VERSION")"
+          echo "digest=${digest#*@}" >> "$GITHUB_OUTPUT"
+          echo "Published $IMAGE:$VERSION ($digest)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Image archive (for hosts that can't pull)
+        env:
+          IMAGE: ${{ steps.v.outputs.image }}:${{ steps.v.outputs.version }}
+          ARCHIVE: ${{ steps.v.outputs.archive }}
+        run: |
+          set -euo pipefail
+          docker save "$IMAGE" | gzip -9 > "$ARCHIVE"
+          sha256sum "$ARCHIVE" > "$ARCHIVE.sha256"
+          ls -l "$ARCHIVE"
+
+      - name: Create the GitHub pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ steps.v.outputs.version }}
+          IMAGE: ${{ steps.v.outputs.image }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+          ARCHIVE: ${{ steps.v.outputs.archive }}
+        run: |
+          set -euo pipefail
+          {
+            cat "docs/releases/server-v$VERSION.md"
+            echo
+            echo "## Published image (this release)"
+            echo
+            echo '| | |'
+            echo '|---|---|'
+            echo "| Image | \`$IMAGE:$VERSION\` |"
+            echo "| Pinned by digest | \`$IMAGE@$DIGEST\` |"
+            echo "| Commit tag | \`$IMAGE:sha-$GITHUB_SHA\` |"
+            echo "| Architecture | linux/amd64 |"
+            echo "| Commit | \`$GITHUB_SHA\` |"
+            echo
+            echo "Archive for hosts that can't pull: \`$ARCHIVE\` (see its \`.sha256\`)."
+          } > release-notes.md
+          cp .env.example sfcc-server.env.example # release asset names can't start with a dot
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --prerelease \
+            --latest=false \
+            --title "Shared family server $VERSION (release candidate)" \
+            --notes-file release-notes.md \
+            "$ARCHIVE" "$ARCHIVE.sha256" compose.server.yaml sfcc-server.env.example

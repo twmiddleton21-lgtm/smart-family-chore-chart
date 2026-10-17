@@ -34,10 +34,18 @@ if (!Number.isInteger(port) || port < 1024 || port > 65535 || port === 4173 || p
 
 const PROJECT = `sfcc-verify-${Date.now().toString(36)}`;
 const base = `http://localhost:${port}`;
-const env = { ...process.env, SFCC_SERVER_IMAGE: image, SFCC_HOST_PORT: String(port), SFCC_TIMEZONE: 'Europe/London' };
-delete env.SFCC_COOKIE_SECURE;
-delete env.SFCC_TRUST_PROXY;
-delete env.SFCC_ALLOWED_HOSTS;
+// Every setting explicitly (environment variables override a .env file,
+// which Compose would otherwise read from the project folder).
+const env = {
+  ...process.env,
+  SFCC_SERVER_IMAGE: image,
+  SFCC_BIND_ADDRESS: '127.0.0.1',
+  SFCC_HOST_PORT: String(port),
+  SFCC_TIMEZONE: 'Europe/London',
+  SFCC_ALLOWED_HOSTS: '',
+  SFCC_COOKIE_SECURE: 'auto',
+  SFCC_TRUST_PROXY: '',
+};
 const USER = 'rcparent';
 const PASSWORD = 'synthetic test passphrase';
 const results = [];

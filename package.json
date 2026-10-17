@@ -1,7 +1,7 @@
 {
   "name": "smart-family-chore-chart",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.4.0-rc.1",
   "type": "module",
   "description": "A cheerful, local-first family chore chart for touchscreens.",
   "engines": {

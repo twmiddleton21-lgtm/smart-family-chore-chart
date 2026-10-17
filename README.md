@@ -21,11 +21,11 @@ The app comes in two editions:
 | Where data lives | In one browser on one device (localStorage) | In one SQLite database on your own server, shared by every device |
 | Parent protection | A client-side PIN (a convenience lock, **not security**) | Parent accounts with passwords, checked by the server |
 | Family devices | Each device has its own separate data | Kiosks are **paired** with one-time codes and share the same data |
-| How to get it | Published image `ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart` | Build it yourself from this repository with `Dockerfile.server` (no published image yet) |
+| How to get it | Published image `ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart` (`latest`) | Pre-release image `ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart-server:0.4.0-rc.1` (a separate package, no `latest`), or build it from `Dockerfile.server` |
 | Status | Released | **Release candidate for testing; not production-ready** |
 
 > **Status of the shared family server.** It's on the `feature/shared-backend` branch and hasn't been merged into `main`.
-> - **Not published:** there is no published server image. You build it locally.
+> - **Pre-release only:** the server is published as release candidate [`server-v0.4.0-rc.1`](https://github.com/twmiddleton21-lgtm/smart-family-chore-chart/releases/tag/server-v0.4.0-rc.1), a versioned image with no `latest` tag. Install it with [`docs/INSTALL-UBUNTU.md`](docs/INSTALL-UBUNTU.md).
 > - **Tested locally only:** it has been tested on one computer (linux/amd64) with made-up data. No deployment behind a reverse proxy or Cloudflare Tunnel has been confirmed, and Raspberry Pi (ARM) compatibility is **unverified**.
 > - **No live updates yet:** other devices show changes when they reload or regain focus.
 > - **Not ready for real family data:** see [Security limitations](#security-limitations-of-the-shared-server) before using it with real data.
@@ -84,15 +84,19 @@ The app comes in two editions:
 
 ## Shared family server (Docker)
 
-One container runs the Fastify server (Node.js 24), which serves both the app and the API. The family data, parent accounts and paired devices live in one SQLite database on a named Docker volume. Full guide: [`docs/DOCKER-SERVER.md`](docs/DOCKER-SERVER.md). Moving an image to another Docker host: [`docs/DOCKER-TRANSFER.md`](docs/DOCKER-TRANSFER.md).
+One container runs the Fastify server (Node.js 24), which serves both the app and the API. The family data, parent accounts and paired devices live in one SQLite database on a named Docker volume. Install on Ubuntu: [`docs/INSTALL-UBUNTU.md`](docs/INSTALL-UBUNTU.md). Full guide: [`docs/DOCKER-SERVER.md`](docs/DOCKER-SERVER.md). Moving an image to another Docker host: [`docs/DOCKER-TRANSFER.md`](docs/DOCKER-TRANSFER.md).
 
 ### Requirements
 
 - **Docker** with the Compose plugin (Docker Engine on Linux, or Docker Desktop).
-- **Git**, to get the source. There's no published server image, so you build it.
+- **Git**, only if you build the image yourself. Otherwise use the published pre-release image ([`docs/INSTALL-UBUNTU.md`](docs/INSTALL-UBUNTU.md)).
 - About 300 MB of disk space for the image. Tested on **linux/amd64** only.
 
 ### Install and start
+
+**From the release (recommended):** follow [`docs/INSTALL-UBUNTU.md`](docs/INSTALL-UBUNTU.md). It covers copy-and-paste Ubuntu commands, `.env` settings, LAN access from another PC, backups, updates and uninstalling. The image is `ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart-server:0.4.0-rc.1` (linux/amd64); the [release page](https://github.com/twmiddleton21-lgtm/smart-family-chore-chart/releases/tag/server-v0.4.0-rc.1) lists its digest and an image archive for hosts that can't pull.
+
+**Or build it yourself from source:**
 
 Bash (Linux, macOS, Git Bash on Windows):
 
@@ -123,12 +127,13 @@ docker compose -f compose.server.yaml ps
 
 Then open **http://localhost:3000** on the same computer.
 
-Settings read by `compose.server.yaml`:
+Settings read by `compose.server.yaml`, from a `.env` file next to it (copy [`.env.example`](.env.example)) or from the environment:
 
 | Variable | Default | Meaning |
 |---|---|---|
 | `SFCC_SERVER_IMAGE` | **required** | The local image tag to run. Compose refuses to start without it, and never pulls or builds (`pull_policy: never`). |
-| `SFCC_HOST_PORT` | `3000` | Port on this computer. Published on `127.0.0.1` only. |
+| `SFCC_BIND_ADDRESS` | `127.0.0.1` | Address on this machine to publish the port on: `127.0.0.1` (this machine only), or one specific private LAN address. Never `0.0.0.0`. |
+| `SFCC_HOST_PORT` | `3000` | Port on this machine. |
 | `SFCC_TIMEZONE` | `UTC` | Household time zone (IANA name such as `Europe/London`), used for "today". |
 | `SFCC_COOKIE_SECURE` | `auto` | `auto`, `always` or `never` (see [HTTPS](#networking-https-and-reverse-proxies)). |
 | `SFCC_TRUST_PROXY` | empty | Trusted reverse-proxy addresses (see [reverse proxies](#networking-https-and-reverse-proxies)). |
@@ -228,7 +233,7 @@ This prints a temporary password and signs that parent out everywhere. Sign in w
 ### Networking, HTTPS and reverse proxies
 
 - **Default: this computer only.** The port is published on `127.0.0.1`.
-  - To use it from other devices on your home network, change the `ports:` line in `compose.server.yaml` to `"0.0.0.0:${SFCC_HOST_PORT:-3000}:3000"`, and set `SFCC_ALLOWED_HOSTS` to the address you'll type (for example `192.168.1.20`). Only do this on a network you trust: it is then plain HTTP.
+  - To use it from other devices on your home network, set `SFCC_BIND_ADDRESS` and `SFCC_ALLOWED_HOSTS` to this machine's private LAN address (for example `192.168.1.20`; find it with `hostname -I`), and open `http://<LAN-IP>:<port>` on the other device. Only do this on a network you trust: it is then plain HTTP. Don't use `0.0.0.0`.
 - **Host names:** the server only answers to `localhost`, `127.0.0.1`, `[::1]` and the names in `SFCC_ALLOWED_HOSTS`. Anything else gets 421. This blocks DNS-rebinding attacks, where another website points its own name at your server.
   - To reach it from elsewhere, prefer an SSH tunnel or a VPN over opening ports.
 - **Plain HTTP:** for direct local testing, keep `SFCC_COOKIE_SECURE=auto`.
@@ -412,7 +417,7 @@ The data source is chosen at build time: the default build is browser-only, and 
 
 - **Browser-only app:** one device per data set. Clearing site data erases everything, and the PIN is client-side only.
 - **Shared family server:**
-  - **Not done yet:** a published server image, live updates between devices, scheduled backups, and confirmed reverse-proxy, Cloudflare Tunnel or Raspberry Pi deployments.
+  - **Not done yet:** a stable (non-pre-release) server image, live updates between devices, scheduled backups, and confirmed reverse-proxy, Cloudflare Tunnel or Raspberry Pi deployments.
   - Also see its [security limitations](#security-limitations-of-the-shared-server).
 - **Both editions:**
   - There's no parent approval step for reward redemptions, and rewards are shared by all children.

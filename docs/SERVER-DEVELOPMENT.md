@@ -195,4 +195,4 @@ Server routes (parent only): `GET /api/export`, `POST /api/import/preview {data}
 
 ## Not done yet (later stages)
 
-Live updates (D). A local Docker release candidate (one container serving the app and the API, with a Compose example, HTTPS/cookie guidance, backup/restore and recovery) is described in [DOCKER-SERVER.md](DOCKER-SERVER.md); scheduled backups and a published server image aren't done yet. Rate-limit counters are process-local memory only (reset on restart; see *Security measures*). There's no e-mail password reset (by design; use the server command line).
+Live updates (D). A Docker release candidate (published as a versioned pre-release image; see [INSTALL-UBUNTU.md](INSTALL-UBUNTU.md)) (one container serving the app and the API, with a Compose example, HTTPS/cookie guidance, backup/restore and recovery) is described in [DOCKER-SERVER.md](DOCKER-SERVER.md); scheduled backups and a stable server release aren't done yet. Rate-limit counters are process-local memory only (reset on restart; see *Security measures*). There's no e-mail password reset (by design; use the server command line).

@@ -4,7 +4,7 @@ One Node.js container runs the Fastify server, which serves both the app and the
 
 This is a **local release candidate**: build it yourself with a unique tag and test it with made-up data. It is separate from the published `ghcr.io/…/smart-family-chore-chart` image, which is the browser-only app (built from `Dockerfile`/`compose.yaml`) and is not changed by any of this.
 
-Files: `Dockerfile.server`, `compose.server.yaml`, `scripts/verify-docker-rc.mjs`. Moving the image to another host: [DOCKER-TRANSFER.md](DOCKER-TRANSFER.md). Server details: [SERVER-DEVELOPMENT.md](SERVER-DEVELOPMENT.md).
+Files: `Dockerfile.server`, `compose.server.yaml`, `.env.example`, `scripts/verify-docker-rc.mjs`. Installing a published release on Ubuntu: [INSTALL-UBUNTU.md](INSTALL-UBUNTU.md). Moving the image to another host: [DOCKER-TRANSFER.md](DOCKER-TRANSFER.md). Server details: [SERVER-DEVELOPMENT.md](SERVER-DEVELOPMENT.md).
 
 ## Build
 
@@ -57,12 +57,13 @@ SFCC_SERVER_IMAGE=smart-family-chore-chart-server:$TAG SFCC_HOST_PORT=3195 \
 
 ### Settings
 
-Compose file variables (read by `compose.server.yaml` only):
+Compose file variables (read by `compose.server.yaml` only, from a `.env` file next to it, copied from [`.env.example`](../.env.example), or from the environment):
 
 | Variable | Default | Meaning |
 |---|---|---|
 | `SFCC_SERVER_IMAGE` | required | The local image tag to run. There is deliberately no default, so `latest` is never picked by accident. |
-| `SFCC_HOST_PORT` | `3000` | Port on this computer. It is published on `127.0.0.1` only. To open it to your network, change the `ports:` line to `0.0.0.0:…` on purpose. |
+| `SFCC_BIND_ADDRESS` | `127.0.0.1` | Address on this computer to publish the port on: `127.0.0.1` (this computer only), or one specific private LAN address for other devices on your network. Set the same address in `SFCC_ALLOWED_HOSTS`. Don't use `0.0.0.0`. |
+| `SFCC_HOST_PORT` | `3000` | Port on this computer. |
 
 Server settings, passed through to the container:
 
