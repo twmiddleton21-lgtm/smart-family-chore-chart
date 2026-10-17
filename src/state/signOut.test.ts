@@ -5,15 +5,17 @@ import { confirmSignOut, UNCONFIRMED_PREFIX } from './signOut';
 
 const PARENT = { id: 'p1', username: 'sam', displayName: 'Sam' };
 const DEVICE = { id: 'd1', name: 'Kitchen tablet' };
-const SIGNED_IN: AuthStatus = { devMode: false, setupRequired: false, parent: PARENT, device: DEVICE };
+const SID = 'a'.repeat(64);
+const NEWER = 'b'.repeat(64);
+const SIGNED_IN: AuthStatus = { devMode: false, setupRequired: false, parent: PARENT, device: DEVICE, sessionId: SID };
 
 /** A client whose logout and status behave as scripted; records calls. */
-function fakeClient(opts: { logout: () => Promise<void>; status: () => Promise<AuthStatus> }) {
+function fakeClient(opts: { logout: (sessionId: string) => Promise<string>; status: () => Promise<AuthStatus> }) {
   const calls: string[] = [];
   const client = {
-    logout: async () => {
-      calls.push('logout');
-      return opts.logout();
+    logout: async (sessionId: string) => {
+      calls.push(`logout:${sessionId}`);
+      return opts.logout(sessionId);
     },
     status: async () => {
       calls.push('status');
@@ -32,10 +34,10 @@ const json = (status: number, body: unknown) => new Response(JSON.stringify(body
 
 describe('confirmSignOut', () => {
   it('confirms when the server ends the session, and returns the fresh state', async () => {
-    const after: AuthStatus = { ...SIGNED_IN, parent: null };
-    const { client, calls } = fakeClient({ logout: async () => undefined, status: async () => after });
+    const after: AuthStatus = { ...SIGNED_IN, parent: null, sessionId: null };
+    const { client, calls } = fakeClient({ logout: async () => 'ended', status: async () => after });
     expect(await confirmSignOut(client, SIGNED_IN)).toEqual({ confirmed: true, status: after });
-    expect(calls).toEqual(['logout', 'status']); // logout first, then re-read
+    expect(calls).toEqual([`logout:${SID}`, 'status']); // logout (naming the session) first, then re-read
   });
 
   it('does not confirm, and does not re-read the old session, when the request fails on the network', async () => {
@@ -47,7 +49,7 @@ describe('confirmSignOut', () => {
     });
     const out = await confirmSignOut(client, SIGNED_IN);
     expect(out).toEqual({ confirmed: false, message: `${UNCONFIRMED_PREFIX}. Can’t reach the family server.` });
-    expect(calls).toEqual(['logout']);
+    expect(calls).toEqual([`logout:${SID}`]);
   });
 
   it.each([
@@ -87,19 +89,45 @@ describe('confirmSignOut', () => {
   });
 
   it('does not confirm if the server still reports a parent afterwards', async () => {
-    const { client } = fakeClient({ logout: async () => undefined, status: async () => SIGNED_IN });
+    const { client } = fakeClient({ logout: async () => 'ended', status: async () => SIGNED_IN });
     const out = await confirmSignOut(client, SIGNED_IN);
     expect(out.confirmed).toBe(false);
   });
 
   it('confirms when logout succeeded but the follow-up read failed (the session is known to be gone)', async () => {
     const { client } = fakeClient({
-      logout: async () => undefined,
+      logout: async () => 'ended',
       status: async () => {
         throw new ApiError('unreachable', 'down');
       },
     });
-    expect(await confirmSignOut(client, SIGNED_IN)).toEqual({ confirmed: true, status: { ...SIGNED_IN, parent: null } });
+    expect(await confirmSignOut(client, SIGNED_IN)).toEqual({ confirmed: true, status: { ...SIGNED_IN, parent: null, sessionId: null } });
+  });
+
+  it('a session this browser no longer holds is reported as superseded, and the newer one is left alone', async () => {
+    const newer: AuthStatus = { ...SIGNED_IN, sessionId: NEWER };
+    const { client, calls } = fakeClient({ logout: async () => 'replaced', status: async () => newer });
+    expect(await confirmSignOut(client, SIGNED_IN)).toEqual({ confirmed: true, superseded: true, status: newer });
+    expect(calls).toEqual([`logout:${SID}`, 'status']); // one targeted request, nothing else
+  });
+
+  it('a newer session that appears while ending the old one is reported as superseded', async () => {
+    const newer: AuthStatus = { ...SIGNED_IN, sessionId: NEWER };
+    const { client } = fakeClient({ logout: async () => 'ended', status: async () => newer });
+    expect(await confirmSignOut(client, SIGNED_IN)).toEqual({ confirmed: true, superseded: true, status: newer });
+  });
+
+  it('never sends a sign-out without naming the session (it could end a newer one)', async () => {
+    const unknown: AuthStatus = { ...SIGNED_IN, sessionId: null };
+    const signedIn = fakeClient({ logout: async () => 'ended', status: async () => SIGNED_IN });
+    expect(await confirmSignOut(signedIn.client, unknown)).toEqual({ confirmed: true, superseded: true, status: SIGNED_IN });
+    expect(signedIn.calls).toEqual(['status']);
+    const none: AuthStatus = { ...SIGNED_IN, parent: null, sessionId: null };
+    const signedOut = fakeClient({ logout: async () => 'ended', status: async () => none });
+    expect(await confirmSignOut(signedOut.client, unknown)).toEqual({ confirmed: true, status: none });
+    const down = fakeClient({ logout: async () => 'ended', status: async () => Promise.reject(new ApiError('unreachable', 'down')) });
+    expect((await confirmSignOut(down.client, unknown)).confirmed).toBe(false);
+    expect(down.calls).toEqual(['status']);
   });
 
   it('never throws, even on unexpected errors', async () => {
@@ -114,13 +142,23 @@ describe('confirmSignOut', () => {
 });
 
 describe('the real auth client’s logout', () => {
-  it('sends a timeout signal and resolves only on a 2xx JSON answer', async () => {
+  it('names the session, sends a timeout signal and resolves with the server’s answer', async () => {
     let signal: AbortSignal | undefined;
+    let sent: unknown;
     const client = clientOverFetch(async (_url, init) => {
       signal = init.signal ?? undefined;
-      return json(200, { ok: true });
+      sent = JSON.parse(String(init.body));
+      return json(200, { ok: true, result: 'replaced' });
     });
-    await expect(client.logout()).resolves.toBeUndefined();
+    await expect(client.logout(SID)).resolves.toBe('replaced');
+    expect(sent).toEqual({ sessionId: SID });
     expect(signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('rejects an OK answer that doesn’t say what happened to the session', async () => {
+    for (const body of [{ ok: true }, { ok: true, result: 'gone' }]) {
+      const client = clientOverFetch(async () => json(200, body));
+      await expect(client.logout(SID)).rejects.toBeInstanceOf(ApiError);
+    }
   });
 });

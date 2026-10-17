@@ -1,4 +1,5 @@
 import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from 'fastify';
+import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildApp, DEVICE_COOKIE, PARENT_COOKIE } from './app';
 import { hashPassword, verifyPassword } from './auth/crypto';
@@ -130,7 +131,7 @@ describe('password hashing', () => {
 describe('first-run setup', () => {
   it('reports setup required on a fresh server and exposes no family data', async () => {
     await start();
-    expect((await get(null, '/api/auth/status')).json()).toEqual({ devMode: false, setupRequired: true, parent: null, device: null });
+    expect((await get(null, '/api/auth/status')).json()).toEqual({ devMode: false, setupRequired: true, parent: null, device: null, sessionId: null });
     expect((await get(null, '/api/state')).statusCode).toBe(401);
   });
 
@@ -272,6 +273,95 @@ describe('parent sign-in', () => {
     expect((await req(null, { method: 'GET', url: '/api/state', cookies: { [PARENT_COOKIE]: token } })).statusCode).toBe(401);
     // Logging out again is harmless.
     expect((await post(null, '/api/auth/logout')).statusCode).toBe(200);
+  });
+
+  it('status gives a public session id: one per session, not the token, and useless as a credential', async () => {
+    await start();
+    const jar = await signInAfterSetup();
+    const token = jar[PARENT_COOKIE]!;
+    const id = (await get(jar, '/api/auth/status')).json().sessionId as string;
+    expect(id).toMatch(/^[0-9a-f]{64}$/);
+    expect((await get(jar, '/api/auth/status')).json().sessionId).toBe(id); // stable
+    expect(id).not.toContain(token);
+    expect(id).not.toBe(createHash('sha256').update(token).digest('hex')); // not the stored hash either
+    expect((await req(null, { method: 'GET', url: '/api/state', cookies: { [PARENT_COOKIE]: id } })).statusCode).toBe(401);
+    const other = await signIn('sam', PASSWORD);
+    expect((await get(other, '/api/auth/status')).json().sessionId).not.toBe(id);
+    expect((await get(null, '/api/auth/status')).json().sessionId).toBeNull();
+    expect((await get(await pairDevice(jar), '/api/auth/status')).json().sessionId).toBeNull(); // a device has no parent session
+  });
+
+  it('a sign-out naming this browser’s session ends it on the server, without any Set-Cookie', async () => {
+    await start();
+    const jar = await signInAfterSetup();
+    const token = jar[PARENT_COOKIE]!;
+    const sessionId = (await get(jar, '/api/auth/status')).json().sessionId;
+    const before = sessionCount();
+    const r = await post(jar, '/api/auth/logout', { sessionId });
+    expect(r.json()).toEqual({ ok: true, result: 'ended' });
+    // No Set-Cookie: a late answer must not clear a newer cookie (see app.ts).
+    expect(r.headers['set-cookie']).toBeUndefined();
+    expect(jar[PARENT_COOKIE]).toBe(token); // the browser keeps a dead token...
+    expect(sessionCount()).toBe(before - 1);
+    for (const url of ['/api/state', '/api/parents', '/api/export']) {
+      expect((await get(jar, url)).statusCode, url).toBe(401); // ...that is refused everywhere
+    }
+    expect((await get(jar, '/api/auth/status')).json()).toMatchObject({ parent: null, sessionId: null });
+    // and is replaced by the next sign-in.
+    await post(jar, '/api/auth/login', { username: 'sam', password: PASSWORD });
+    expect(jar[PARENT_COOKIE]).not.toBe(token);
+    expect((await get(jar, '/api/parents')).statusCode).toBe(200);
+  });
+
+  it('a sign-out naming an OLDER session leaves the browser’s newer session and cookie alone', async () => {
+    await start();
+    const jar = await signInAfterSetup();
+    const oldId = (await get(jar, '/api/auth/status')).json().sessionId;
+    await post(jar, '/api/auth/login', { username: 'sam', password: PASSWORD }); // signed in again
+    const newToken = jar[PARENT_COOKIE]!;
+    const sessionsBefore = sessionCount();
+    const r = await post(jar, '/api/auth/logout', { sessionId: oldId });
+    expect(r.json()).toEqual({ ok: true, result: 'replaced' });
+    expect(r.cookies).toEqual([]); // no Set-Cookie at all
+    expect(jar[PARENT_COOKIE]).toBe(newToken);
+    expect(sessionCount()).toBe(sessionsBefore);
+    expect((await get(jar, '/api/parents')).statusCode).toBe(200);
+  });
+
+  it('a sign-out for a session this browser no longer holds (ended or expired) changes nothing', async () => {
+    await start();
+    const jar = await signInAfterSetup();
+    const token = jar[PARENT_COOKIE]!;
+    const sessionId = (await get(jar, '/api/auth/status')).json().sessionId;
+    clock += SESSION_POLICY.parent.idleMs + MINUTE; // expired
+    const r = await post(jar, '/api/auth/logout', { sessionId });
+    expect(r.json()).toEqual({ ok: true, result: 'not_signed_in' });
+    expect(r.cookies).toEqual([]); // a late answer must not clear whatever cookie the browser has by then
+    expect(jar[PARENT_COOKIE]).toBe(token);
+    const none = await post(null, '/api/auth/logout', { sessionId });
+    expect(none.json()).toEqual({ ok: true, result: 'not_signed_in' });
+    expect(none.cookies).toEqual([]);
+  });
+
+  it('a targeted sign-out is validated and still refused from other websites', async () => {
+    await start();
+    const jar = await signInAfterSetup();
+    const sessionId = (await get(jar, '/api/auth/status')).json().sessionId;
+    for (const bad of [{ sessionId: 'nope' }, { sessionId: sessionId.toUpperCase() }, { sessionId: 42 }, { sessionId, extra: 1 }]) {
+      expect((await post(jar, '/api/auth/logout', bad)).statusCode).toBe(400);
+    }
+    const cross = await post(jar, '/api/auth/logout', { sessionId }, { origin: 'https://evil.example' });
+    expect(cross.statusCode).toBe(403);
+    expect((await get(jar, '/api/parents')).statusCode).toBe(200); // still signed in
+  });
+
+  it('a sign-out without a session id still ends whatever session the cookie names (plain API use)', async () => {
+    await start();
+    const jar = await signInAfterSetup();
+    const r = await req(jar, { method: 'POST', url: '/api/auth/logout' }); // no body at all
+    expect(r.statusCode).toBe(200);
+    expect(jar[PARENT_COOKIE]).toBeUndefined();
+    expect((await get(jar, '/api/parents')).statusCode).toBe(401);
   });
 
   it('signing in again replaces the browser’s older session', async () => {
@@ -893,7 +983,7 @@ describe('development mode', () => {
     opened = await openData(tmp.dir, 'UTC');
     app = buildApp({ config: { devUnauthenticatedApi: true, bodyLimit: 4096, timeZone: 'UTC', port: 80, dataDir: tmp.dir }, db: opened.db, store: opened.store });
     const h = { host: '127.0.0.1:80' };
-    expect((await app.inject({ url: '/api/auth/status', headers: h, remoteAddress: '127.0.0.1' })).json()).toEqual({ devMode: true, setupRequired: false, parent: null, device: null });
+    expect((await app.inject({ url: '/api/auth/status', headers: h, remoteAddress: '127.0.0.1' })).json()).toEqual({ devMode: true, setupRequired: false, parent: null, device: null, sessionId: null });
     expect((await app.inject({ method: 'POST', url: '/api/auth/login', headers: h, remoteAddress: '127.0.0.1', payload: { username: 'a', password: 'b' } })).statusCode).toBe(404);
     expect((await app.inject({ url: '/api/state', headers: h, remoteAddress: '127.0.0.1' })).statusCode).toBe(200);
     expect((await app.inject({ url: '/api/state', headers: h, remoteAddress: '192.168.1.20' })).statusCode).toBe(403);

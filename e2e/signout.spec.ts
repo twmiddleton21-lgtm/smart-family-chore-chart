@@ -194,3 +194,141 @@ test('a sign-out the server never answers locks at once and times out with a cle
   expect((await serverStatus(ctx)).parent).not.toBeNull();
   await ctx.close();
 });
+
+// ---------- Finding 2: a retry only ends the session it was for ----------
+
+test('an old sign-out retry leaves alone a newer sign-in from another tab (also after a reload)', async ({ browser }) => {
+  const { ctx, page } = await signedInContext(browser);
+  await page.clock.install();
+  await openParentArea(page);
+  const oldToken = await parentCookie(ctx);
+  await failLogout(page, 'network');
+  await page.getByRole('tab', { name: /Family access/ }).click();
+  await page.getByRole('button', { name: 'Sign out' }).click();
+  const problem = page.getByRole('alert').filter({ hasText: UNCONFIRMED });
+  await expect(problem).toBeVisible();
+
+  // The parent signs in again in another tab of the same browser (shared cookie).
+  const other = await ctx.newPage();
+  expect((await other.request.post('/api/auth/login', { data: { username: USERNAME, password: PASSWORD } })).ok()).toBe(true);
+  const newToken = await parentCookie(ctx);
+  expect(newToken).not.toBe(oldToken);
+
+  // The first tab is reloaded (its retry still names the OLD session) and the server is reachable again.
+  const sentAfter: string[] = [];
+  page.on('request', (r) => {
+    if (new URL(r.url()).pathname === '/api/auth/logout') sentAfter.push(r.postData() ?? '');
+  });
+  await page.unroute('**/api/auth/logout');
+  await page.reload();
+  await page.clock.runFor(31_000); // give the background retry a chance
+
+  await expect(problem).toHaveCount(0); // the sign-out settled
+  // The newer session is untouched: same cookie, still signed in.
+  expect((await serverStatus(ctx)).parent).not.toBeNull();
+  expect(await parentCookie(ctx)).toBe(newToken);
+  // Any retry that was sent named the old session, never "whatever this browser holds now".
+  for (const body of sentAfter) expect(JSON.parse(body)).toEqual({ sessionId: expect.stringMatching(/^[0-9a-f]{64}$/) });
+  await expect(page.getByText('The parent session this screen was signing out has ended.')).toBeVisible();
+  // The first tab stays locked and stops retrying.
+  await expect(page.getByRole('heading', { name: 'Connect this device' })).toBeVisible();
+  const settled = sentAfter.length;
+  await page.clock.runFor(5 * 60_000);
+  expect(sentAfter.length).toBe(settled);
+  expect((await serverStatus(ctx)).parent).not.toBeNull();
+  await other.close();
+  await ctx.close();
+});
+
+test('signing in while an old sign-out retry is still on its way keeps the new session', async ({ browser }) => {
+  const { ctx, page } = await signedInKiosk(browser);
+  await openParentArea(page);
+  await failLogout(page, 'http500');
+  await page.getByRole('button', { name: 'Done – lock & exit' }).click();
+  await expect(page.getByRole('alert').filter({ hasText: UNCONFIRMED })).toBeVisible();
+
+  // Next attempt: held on the network until released.
+  await page.unroute('**/api/auth/logout');
+  let release!: () => void;
+  const held = new Promise<void>((r) => (release = r));
+  let sent = 0;
+  await page.route('**/api/auth/logout', async (route) => {
+    sent++;
+    await held;
+    await route.continue();
+  });
+  await page.getByRole('button', { name: 'Try signing out again' }).click();
+  await expect.poll(() => sent).toBe(1);
+
+  const order: string[] = [];
+  page.on('request', (r) => new URL(r.url()).pathname === '/api/auth/login' && order.push('login sent'));
+  page.on('requestfinished', (r) => new URL(r.url()).pathname === '/api/auth/logout' && order.push('logout answered'));
+
+  // Sign in meanwhile.
+  await dismissMealReminder(page);
+  await page.getByRole('button', { name: /Parent area/ }).first().click();
+  const dialog = page.getByRole('dialog', { name: 'Parent sign in' });
+  await dialog.getByLabel('Username').fill(USERNAME);
+  await dialog.getByLabel('Password').fill(PASSWORD);
+  await dialog.getByRole('button', { name: 'Sign in' }).click();
+  // Give a sign-in that doesn't wait every chance to finish first, then let the old attempt arrive.
+  await page.getByRole('heading', { name: /Parent area/ }).waitFor({ timeout: 2000 }).catch(() => undefined);
+  release();
+
+  await expect(page.getByRole('heading', { name: /Parent area/ })).toBeVisible();
+  await expect(page.getByRole('alert').filter({ hasText: UNCONFIRMED })).toHaveCount(0);
+  const status = await serverStatus(ctx);
+  expect(status.parent).not.toBeNull(); // the new session survived the old attempt
+  expect(status.device).not.toBeNull();
+  expect(sent).toBe(1);
+  expect(order).toEqual(['logout answered', 'login sent']); // the sign-in waited for the attempt on its way
+  await ctx.close();
+});
+
+test('a sign-out answer that arrives after another tab’s sign-in doesn’t clear the new cookie', async ({ browser }) => {
+  const { ctx, page } = await signedInContext(browser);
+  await openParentArea(page);
+  const tokenA = await parentCookie(ctx);
+
+  // The server handles tab A's sign-out at once; its answer reaches the browser only when released.
+  let release!: () => void;
+  const held = new Promise<void>((r) => (release = r));
+  let handled!: () => void;
+  const serverDone = new Promise<void>((r) => (handled = r));
+  await page.route('**/api/auth/logout', async (route) => {
+    const response = await route.fetch();
+    handled();
+    await held;
+    await route.fulfill({ response });
+  });
+  await page.getByRole('tab', { name: /Family access/ }).click();
+  await page.getByRole('button', { name: 'Sign out' }).click();
+  await serverDone;
+
+  // Tab B (same browser) signs in before tab A's answer arrives.
+  const other = await ctx.newPage();
+  expect((await other.request.post('/api/auth/login', { data: { username: USERNAME, password: PASSWORD } })).ok()).toBe(true);
+  const tokenB = await parentCookie(ctx);
+  expect(tokenB).toBeTruthy();
+  expect(tokenB).not.toBe(tokenA);
+
+  release(); // tab A's old answer arrives last
+  // Tab A ended its session; it sees tab B's newer sign-in, leaves it alone and stays locked.
+  await expect(page.getByRole('heading', { name: 'Connect this device' })).toBeVisible();
+  await expect(page.getByText('The parent session this screen was signing out has ended.')).toBeVisible();
+  await expect(page.getByRole('alert').filter({ hasText: UNCONFIRMED })).toHaveCount(0);
+
+  const replay = async (token: string) => {
+    const c = await browser.newContext({ baseURL: base });
+    await c.addCookies([{ name: 'sfcc_parent', value: token, url: base }]);
+    const parent = (await serverStatus(c)).parent;
+    await c.close();
+    return parent;
+  };
+  expect(await replay(tokenA!)).toBeNull(); // session A ended
+  expect(await replay(tokenB!)).not.toBeNull(); // session B valid on the server
+  expect(await parentCookie(ctx)).toBe(tokenB); // and the browser still holds it
+  expect((await serverStatus(ctx)).parent).not.toBeNull();
+  await other.close();
+  await ctx.close();
+});

@@ -17,21 +17,38 @@ import { confirmSignOut } from './signOut';
 // server confirms it or the parent signs in again. The lock is kept for this
 // tab across page reloads. Locking the screen is not access control; only
 // the server ending the session removes the parent's rights.
+//
+// Every sign-out names the session it was started for, and its retries
+// (also after a reload) keep naming that one; the server ends only that
+// session. If the parent has since signed in again in another tab (same
+// browser cookie), the retry stops without touching the newer session and
+// this tab stays locked (`signOutSuperseded`) until someone signs in here.
+// Signing in on this tab waits for a sign-out still in progress, pauses the
+// retries, and ignores any sign-out result from before it.
+
+/** How a sign-out ended (see Access.signOut). */
+export type SignOutResult = 'confirmed' | 'unconfirmed' | 'superseded';
 
 export interface Access {
-  /** As shown to the app: `parent` is null while a sign-out is locked or unconfirmed. */
+  /** As shown to the app: `parent` is null while a sign-out is locked, unconfirmed or superseded. */
   status: AuthStatus;
   client: AuthClient;
   /** Re-read the sign-in state from the server. */
   refresh(): Promise<void>;
-  /** Parent sign-in; also clears any unconfirmed sign-out on this browser. */
+  /** Parent sign-in; also clears any unconfirmed or superseded sign-out on this tab. */
   login(username: string, password: string, remember: boolean): Promise<void>;
-  /** Lock now and end the parent session on the server. True only if the server confirmed it. */
-  signOut(): Promise<boolean>;
+  /**
+   * Lock now and end the parent session on the server. `confirmed` only if the
+   * server confirmed it; `superseded` if that session was already replaced by
+   * a newer sign-in on this browser (left alone).
+   */
+  signOut(): Promise<SignOutResult>;
   /** A sign-out request is in progress. */
   signingOut: boolean;
   /** Set while the server hasn't confirmed a sign-out (the screen stays locked). */
   signOutProblem: string | null;
+  /** The session being signed out was replaced by a newer sign-in on this browser; this tab stays locked. */
+  signOutSuperseded: boolean;
 }
 
 export type AccessLoad =
@@ -50,38 +67,60 @@ export function AccessProvider({ access, children }: { access: Access; children:
   return <AccessContext.Provider value={access}>{children}</AccessContext.Provider>;
 }
 
-type Lock = 'none' | 'signing-out' | 'unconfirmed';
+type Lock = 'none' | 'signing-out' | 'unconfirmed' | 'superseded';
 
-/** Per-tab memory of an unconfirmed sign-out, so a reload doesn't unlock the screen. */
+/** Per-tab memory of a sign-out that isn't settled, so a reload doesn't unlock the screen. */
 const LOCK_KEY = 'sfcc:sign-out-unconfirmed';
 const RELOADED_MESSAGE = 'Couldn’t confirm sign-out with the family server before this page was reloaded.';
 const RETRY_MS = 30_000;
 
-function readStoredLock(): boolean {
+interface StoredLock {
+  lock: 'unconfirmed' | 'superseded';
+  /** Public id of the session being signed out (null if unknown). */
+  target: string | null;
+}
+
+function readStoredLock(): StoredLock | null {
   try {
-    return window.sessionStorage.getItem(LOCK_KEY) === '1';
+    const raw = window.sessionStorage.getItem(LOCK_KEY);
+    if (raw === null) return null;
+    try {
+      const v = JSON.parse(raw) as Partial<StoredLock>;
+      const target = typeof v.target === 'string' ? v.target : null;
+      return { lock: v.lock === 'superseded' ? 'superseded' : 'unconfirmed', target };
+    } catch {
+      // Unreadable (e.g. written by an older build): stay locked; the target is unknown.
+      return { lock: 'unconfirmed', target: null };
+    }
   } catch {
-    return false;
+    return null;
   }
 }
-function storeLock(on: boolean): void {
+function storeLock(lock: Lock, target: string | null): void {
   try {
-    if (on) window.sessionStorage.setItem(LOCK_KEY, '1');
-    else window.sessionStorage.removeItem(LOCK_KEY);
+    if (lock === 'none') window.sessionStorage.removeItem(LOCK_KEY);
+    else window.sessionStorage.setItem(LOCK_KEY, JSON.stringify({ lock: lock === 'superseded' ? 'superseded' : 'unconfirmed', target }));
   } catch {
     // Storage unavailable: the lock still holds until the page is reloaded.
   }
 }
 
 export function useAccessLoader(client: AuthClient = authClient): AccessLoad {
+  const [stored] = useState(readStoredLock);
   const [status, setStatus] = useState<AuthStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [lock, setLockState] = useState<Lock>(() => (readStoredLock() ? 'unconfirmed' : 'none'));
-  const [problem, setProblem] = useState<string | null>(() => (readStoredLock() ? RELOADED_MESSAGE : null));
+  const [lock, setLockState] = useState<Lock>(() => stored?.lock ?? 'none');
+  const [problem, setProblem] = useState<string | null>(() => (stored?.lock === 'unconfirmed' ? RELOADED_MESSAGE : null));
   const seq = useRef(0);
   const lockRef = useRef(lock);
+  /** The session the current sign-out is for. */
+  const targetRef = useRef<string | null>(stored?.target ?? null);
   const statusRef = useRef(status);
-  const inFlight = useRef<Promise<boolean> | null>(null);
+  const inFlight = useRef<Promise<SignOutResult> | null>(null);
+  /** Bumped by every sign-in: sign-out results from before it are ignored. */
+  const generation = useRef(0);
+  /** A sign-in is in progress on this tab: don't start sign-out retries meanwhile. */
+  const signingIn = useRef(false);
   /** Retry straight away once if the page was reloaded during an unconfirmed sign-out. */
   const retryOnLoad = useRef(lock === 'unconfirmed');
 
@@ -90,8 +129,9 @@ export function useAccessLoader(client: AuthClient = authClient): AccessLoad {
     setLockState(next);
     // Keep showing the last problem while a retry is in progress.
     if (next === 'unconfirmed') setProblem(message);
-    if (next === 'none') setProblem(null);
-    storeLock(next !== 'none');
+    if (next === 'none' || next === 'superseded') setProblem(null);
+    if (next === 'none') targetRef.current = null;
+    storeLock(next, targetRef.current);
   }, []);
 
   const accept = useCallback(
@@ -99,9 +139,14 @@ export function useAccessLoader(client: AuthClient = authClient): AccessLoad {
       statusRef.current = next;
       setStatus(next);
       setError(null);
-      // The server says no parent session exists for this browser: an
-      // unconfirmed sign-out is now confirmed (e.g. it expired meanwhile).
-      if (lockRef.current === 'unconfirmed' && next.parent === null) setLock('none');
+      const current = lockRef.current;
+      if (current !== 'unconfirmed' && current !== 'superseded') return;
+      // The server says no parent session exists for this browser: the
+      // sign-out is settled (e.g. it expired meanwhile).
+      if (next.parent === null) setLock('none');
+      // This browser now holds a different session than the one being signed
+      // out: that one is gone, and the newer one must be left alone.
+      else if (current === 'unconfirmed' && targetRef.current && next.sessionId !== targetRef.current) setLock('superseded');
     },
     [setLock],
   );
@@ -119,35 +164,57 @@ export function useAccessLoader(client: AuthClient = authClient): AccessLoad {
     }
   }, [accept, client]);
 
-  const signOut = useCallback((): Promise<boolean> => {
+  const signOut = useCallback((): Promise<SignOutResult> => {
     // One request at a time (the button, focus and the retry timer may overlap).
     if (inFlight.current) return inFlight.current;
+    // Never while this tab is signing in: that will replace the session anyway.
+    if (signingIn.current) return Promise.resolve('unconfirmed');
+    // A new sign-out is for the session shown now; a retry keeps its original target.
+    if (lockRef.current === 'none') targetRef.current = statusRef.current?.sessionId ?? null;
+    else if (lockRef.current === 'superseded') return Promise.resolve('superseded');
     setLock('signing-out'); // lock this screen first, whatever happens next
-    const run = (async () => {
-      const previous = statusRef.current ?? { devMode: false, setupRequired: false, parent: null, device: null };
+    const mine = generation.current;
+    const run = (async (): Promise<SignOutResult> => {
+      const previous = { ...(statusRef.current ?? { devMode: false, setupRequired: false, parent: null, device: null, sessionId: null }), sessionId: targetRef.current };
       const outcome = await confirmSignOut(client, previous);
+      if (mine !== generation.current) return 'superseded'; // signed in again meanwhile: stale
       if (outcome.confirmed) {
         seq.current++; // ignore any older status read still in flight
-        accept(outcome.status);
+        statusRef.current = outcome.status;
+        setStatus(outcome.status);
+        setError(null);
+        if (outcome.superseded) {
+          setLock('superseded');
+          return 'superseded';
+        }
         setLock('none');
-        return true;
+        return 'confirmed';
       }
       setLock('unconfirmed', outcome.message);
-      return false;
+      return 'unconfirmed';
     })();
     inFlight.current = run;
     void run.finally(() => {
       inFlight.current = null;
     });
     return run;
-  }, [accept, client, setLock]);
+  }, [client, setLock]);
 
   const login = useCallback(
     async (username: string, password: string, remember: boolean) => {
-      await client.login(username, password, remember);
-      // The server replaced this browser's previous parent session (including
-      // an unconfirmed one) with the new one.
-      setLock('none');
+      signingIn.current = true;
+      try {
+        // Let a sign-out already on its way finish first (it is bounded by a
+        // timeout and never throws), so its answer can't arrive after ours.
+        await inFlight.current;
+        await client.login(username, password, remember);
+        generation.current++;
+        // The server replaced this browser's previous parent session (including
+        // an unconfirmed one) with the new one.
+        setLock('none');
+      } finally {
+        signingIn.current = false;
+      }
       await refresh();
     },
     [client, refresh, setLock],
@@ -184,10 +251,19 @@ export function useAccessLoader(client: AuthClient = authClient): AccessLoad {
   }, [lock, signOut]);
 
   if (status) {
-    const shown = lock === 'none' ? status : { ...status, parent: null };
+    const shown = lock === 'none' ? status : { ...status, parent: null, sessionId: null };
     return {
       state: 'ready',
-      access: { status: shown, client, refresh, login, signOut, signingOut: lock === 'signing-out', signOutProblem: lock === 'none' ? null : problem },
+      access: {
+        status: shown,
+        client,
+        refresh,
+        login,
+        signOut,
+        signingOut: lock === 'signing-out',
+        signOutProblem: lock === 'unconfirmed' || lock === 'signing-out' ? problem : null,
+        signOutSuperseded: lock === 'superseded',
+      },
     };
   }
   if (error) return { state: 'error', message: error, retry: () => void refresh() };

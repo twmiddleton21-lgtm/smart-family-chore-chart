@@ -91,6 +91,18 @@ export function DevBuildBanner() {
  */
 export function SignOutProblemBanner() {
   const access = useAccess();
+  if (access?.signOutSuperseded) {
+    // The session this tab was signing out is gone; a newer sign-in on this
+    // browser (e.g. another tab) was left alone. This tab stays locked.
+    return (
+      <div className="banner banner-info" role="status">
+        <span>
+          ℹ️ The parent session this screen was signing out has ended. A parent has signed in again on this browser (in
+          another tab or window), and that sign-in was left alone. Sign in here to use the parent area on this screen.
+        </span>
+      </div>
+    );
+  }
   if (!access?.signOutProblem) return null;
   return (
     <div className="banner banner-warning" role="alert">

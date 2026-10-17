@@ -1,7 +1,8 @@
 import path from 'node:path';
 import cookie from '@fastify/cookie';
 import Fastify, { type FastifyError, type FastifyInstance, type FastifyReply, type FastifyRequest, type FastifyServerOptions } from 'fastify';
-import { AuthService, type AuthContext, type AuthError } from './auth/service';
+import { safeEqual } from './auth/crypto';
+import { AuthService, publicSessionId, type AuthContext, type AuthError } from './auth/service';
 import type { ServerConfig } from './config';
 import { createBackup } from './db/backup';
 import type { SqlDatabase } from './db/database';
@@ -217,7 +218,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
         return reply.status(403).send({ error: 'forbidden', message: 'Development API is only available from this computer.' });
       }
     });
-    app.get('/api/auth/status', async () => ({ devMode: true, setupRequired: false, parent: null, device: null }));
+    app.get('/api/auth/status', async () => ({ devMode: true, setupRequired: false, parent: null, device: null, sessionId: null }));
   } else {
     // Cross-site check on EVERY state-changing request (not just /api paths,
     // so encoded paths cannot slip past a prefix check).
@@ -278,7 +279,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   if (!dev && auth) {
     app.get('/api/auth/status', async (request) => {
       const c = ctxOf(request);
-      return { devMode: false, setupRequired: auth.isSetupRequired(), parent: c.parent, device: c.device };
+      const sessionId = c.parent && c.parentSessionHash ? publicSessionId(c.parentSessionHash) : null;
+      return { devMode: false, setupRequired: auth.isSetupRequired(), parent: c.parent, device: c.device, sessionId };
     });
 
     app.post<{ Body: { setupCode: string; username: string; displayName: string; password: string } }>(
@@ -307,10 +309,38 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       },
     );
 
-    app.post('/api/auth/logout', async (request, reply) => {
+    // With `sessionId` (what the app sends): end that session only if it is
+    // the one this request's cookie names, and never send a Set-Cookie. A
+    // Set-Cookie applies to whatever cookie the browser holds when the answer
+    // ARRIVES, which may by then be a newer session from signing in again in
+    // another tab; clearing it would sign that tab out. Ending the session
+    // here is what removes access; the browser keeps a dead token that is
+    // ignored, and replaced at the next sign-in.
+    //   ended          - it was this browser's session; now ended
+    //   not_signed_in  - this browser holds no valid parent session (already ended or expired)
+    //   replaced       - this browser now holds a different session (left alone)
+    // Without `sessionId`: end whatever session the cookie names and clear the
+    // cookie (plain API use; not used by the app).
+    app.post<{ Body: unknown }>('/api/auth/logout', async (request, reply) => {
+      // The body is optional, so it is checked here rather than by a schema.
+      const raw = request.body;
+      if (raw !== undefined && raw !== null && (typeof raw !== 'object' || Array.isArray(raw) || Object.keys(raw).some((k) => k !== 'sessionId'))) {
+        return reply.status(400).send({ error: 'invalid_request', message: 'Unexpected sign-out request.' });
+      }
+      const target = (raw as { sessionId?: unknown } | null | undefined)?.sessionId;
+      if (target !== undefined && (typeof target !== 'string' || !/^[0-9a-f]{64}$/.test(target))) {
+        return reply.status(400).send({ error: 'invalid_request', message: 'Unexpected sign-out request.' });
+      }
+      if (target === undefined) {
+        auth.logout(request.cookies[PARENT_COOKIE]);
+        clearSessionCookie(request, reply, PARENT_COOKIE);
+        return { ok: true };
+      }
+      const current = ctxOf(request).parentSessionHash;
+      if (!current) return { ok: true, result: 'not_signed_in' };
+      if (!safeEqual(publicSessionId(current), target)) return { ok: true, result: 'replaced' };
       auth.logout(request.cookies[PARENT_COOKIE]);
-      clearSessionCookie(request, reply, PARENT_COOKIE);
-      return { ok: true };
+      return { ok: true, result: 'ended' };
     });
 
     app.get('/api/parents', { preParsing: requireParent }, async (request) => {

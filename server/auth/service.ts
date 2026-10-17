@@ -37,6 +37,16 @@ export interface DeviceInfo {
   id: string;
   name: string;
 }
+/**
+ * A public id for a session, derived one-way from its token hash. The app
+ * learns it from /api/auth/status and names it when signing out, so a
+ * delayed sign-out can only end the session it was meant for. It is not a
+ * credential: requests are only ever authenticated by the token cookie.
+ */
+export function publicSessionId(tokenHash: string): string {
+  return sha256(`sfcc-session-id:${tokenHash}`);
+}
+
 export interface AuthContext {
   parent: ParentInfo | null;
   device: DeviceInfo | null;

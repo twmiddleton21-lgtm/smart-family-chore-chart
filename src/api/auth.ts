@@ -1,4 +1,4 @@
-import { createRequester, type Requester } from './client';
+import { ApiError, createRequester, type Requester } from './client';
 
 // Parent accounts and device pairing on the family server. Session tokens
 // live only in HttpOnly cookies set by the server: this code never sees them.
@@ -23,7 +23,17 @@ export interface AuthStatus {
   parent: ParentInfo | null;
   /** This browser's paired-device identity, if any. */
   device: DeviceInfo | null;
+  /**
+   * Public id of the parent session this browser holds (null if none).
+   * Named when signing out, so a delayed sign-out can't end a newer session.
+   * Not a credential.
+   */
+  sessionId: string | null;
 }
+
+/** What the server did with a targeted sign-out (see server/app.ts). */
+export type LogoutResult = 'ended' | 'not_signed_in' | 'replaced';
+const LOGOUT_RESULTS: readonly string[] = ['ended', 'not_signed_in', 'replaced'];
 
 export interface ParentListItem extends ParentInfo {
   createdAt: string;
@@ -40,7 +50,8 @@ export interface AuthClient {
   status(): Promise<AuthStatus>;
   setup(input: { setupCode: string; username: string; displayName: string; password: string }): Promise<{ parent: ParentInfo }>;
   login(username: string, password: string, remember: boolean): Promise<{ parent: ParentInfo }>;
-  logout(): Promise<void>;
+  /** End the parent session with this public id, and only that one. */
+  logout(sessionId: string): Promise<LogoutResult>;
   pair(code: string): Promise<{ device: DeviceInfo }>;
   listParents(): Promise<ParentListItem[]>;
   addParent(input: { username: string; displayName: string; password: string }): Promise<{ parent: ParentInfo }>;
@@ -59,10 +70,14 @@ export function createAuthClient(request: Requester = createRequester()): AuthCl
     status: () => request<AuthStatus>('GET', '/api/auth/status'),
     setup: (input) => request('POST', '/api/auth/setup', input),
     login: (username, password, remember) => request('POST', '/api/auth/login', { username, password, remember }),
-    logout: async () => {
-      // Resolves only when the server confirms it ended the session; any
-      // network error, error status or timeout rejects.
-      await request('POST', '/api/auth/logout', {}, { timeoutMs: SIGN_OUT_TIMEOUT_MS });
+    logout: async (sessionId) => {
+      // Resolves only with the server's answer about THAT session; any
+      // network error, error status, timeout or unexpected answer rejects.
+      const r = await request<{ result?: unknown }>('POST', '/api/auth/logout', { sessionId }, { timeoutMs: SIGN_OUT_TIMEOUT_MS });
+      if (typeof r.result !== 'string' || !LOGOUT_RESULTS.includes(r.result)) {
+        throw new ApiError('server', 'The family server gave an unexpected answer.');
+      }
+      return r.result as LogoutResult;
     },
     pair: (code) => request('POST', '/api/devices/pair', { code }),
     listParents: async () => (await request<{ parents: ParentListItem[] }>('GET', '/api/parents')).parents,

@@ -116,8 +116,9 @@ function AppContent({ store, data }: { store: FamilyStore; data: FamilyData }) {
    */
   const endParentSession = async (confirmedMessage: string) => {
     if (!signIn) return;
-    const confirmed = await access.signOut();
-    if (confirmed) notify(confirmedMessage);
+    const result = await access.signOut();
+    if (result === 'confirmed') notify(confirmedMessage);
+    else if (result === 'superseded') notify('That parent session has ended. A newer sign-in on this browser (another tab or window) was left signed in.', 'info');
     else notify('Couldn’t confirm sign-out with the family server. The parent area is locked on this screen.', 'error');
   };
   /** Leave the parent area. On a shared family device this also signs the parent out. */
@@ -133,7 +134,7 @@ function AppContent({ store, data }: { store: FamilyStore; data: FamilyData }) {
   // If the parent session ends (expired, signed out elsewhere, removed, or a
   // sign-out locked this screen), leave the parent area.
   const inParentArea = screen.name === 'parent';
-  const signOutUnderway = signIn && (access.signingOut || access.signOutProblem !== null);
+  const signOutUnderway = signIn && (access.signingOut || access.signOutProblem !== null || access.signOutSuperseded);
   useEffect(() => {
     if (inParentArea && signIn && !parentSignedIn) {
       setScreen({ name: 'dashboard' });
