@@ -102,27 +102,44 @@ function kindFor(status: number, error: unknown): ApiErrorKind {
   return 'server';
 }
 
-export type Requester = <T>(method: 'GET' | 'POST', path: string, body?: unknown) => Promise<T>;
+export interface RequestOptions {
+  /** Give up (as "unreachable") if the server hasn't answered in this time. */
+  timeoutMs?: number;
+}
+
+export type Requester = <T>(method: 'GET' | 'POST', path: string, body?: unknown, options?: RequestOptions) => Promise<T>;
+
+const TIMED_OUT = 'The family server didn’t answer in time.';
 
 /** Kinds where the server's own message is the most helpful one to show. */
 const SERVER_WORDED: ReadonlySet<ApiErrorKind> = new Set(['rejected', 'conflict', 'not_found', 'rate_limited', 'forbidden', 'unauthenticated']);
 
 export function createRequester(fetchImpl: typeof fetch = (...args) => fetch(...args), base = ''): Requester {
-  return async function request<T>(method: 'GET' | 'POST', path: string, body?: unknown): Promise<T> {
+  return async function request<T>(method: 'GET' | 'POST', path: string, body?: unknown, options: RequestOptions = {}): Promise<T> {
+    const controller = options.timeoutMs ? new AbortController() : null;
+    const timer = controller ? setTimeout(() => controller.abort(), options.timeoutMs) : null;
     let response: Response;
+    let text: string;
     try {
-      response = await fetchImpl(base + path, {
-        method,
-        headers: body === undefined ? { Accept: 'application/json' } : { Accept: 'application/json', 'Content-Type': 'application/json' },
-        body: body === undefined ? undefined : JSON.stringify(body),
-        credentials: 'same-origin',
-        cache: 'no-store',
-      });
-    } catch {
-      throw new ApiError('unreachable', FRIENDLY.unreachable);
+      try {
+        response = await fetchImpl(base + path, {
+          method,
+          headers: body === undefined ? { Accept: 'application/json' } : { Accept: 'application/json', 'Content-Type': 'application/json' },
+          body: body === undefined ? undefined : JSON.stringify(body),
+          credentials: 'same-origin',
+          cache: 'no-store',
+          ...(controller ? { signal: controller.signal } : {}),
+        });
+      } catch {
+        throw new ApiError('unreachable', controller?.signal.aborted ? TIMED_OUT : FRIENDLY.unreachable);
+      }
+      text = await response.text().catch(() => '');
+      // A body cut off by the timeout is not an answer we can trust.
+      if (controller?.signal.aborted) throw new ApiError('unreachable', TIMED_OUT);
+    } finally {
+      if (timer) clearTimeout(timer);
     }
     let json: unknown = null;
-    const text = await response.text().catch(() => '');
     if (text) {
       try {
         json = JSON.parse(text);

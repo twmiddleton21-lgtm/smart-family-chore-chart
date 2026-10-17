@@ -51,13 +51,18 @@ export interface AuthClient {
   revokeDevice(id: string): Promise<void>;
 }
 
+/** How long to wait for the server to confirm a sign-out. */
+export const SIGN_OUT_TIMEOUT_MS = 10_000;
+
 export function createAuthClient(request: Requester = createRequester()): AuthClient {
   return {
     status: () => request<AuthStatus>('GET', '/api/auth/status'),
     setup: (input) => request('POST', '/api/auth/setup', input),
     login: (username, password, remember) => request('POST', '/api/auth/login', { username, password, remember }),
     logout: async () => {
-      await request('POST', '/api/auth/logout', {});
+      // Resolves only when the server confirms it ended the session; any
+      // network error, error status or timeout rejects.
+      await request('POST', '/api/auth/logout', {}, { timeoutMs: SIGN_OUT_TIMEOUT_MS });
     },
     pair: (code) => request('POST', '/api/devices/pair', { code }),
     listParents: async () => (await request<{ parents: ParentListItem[] }>('GET', '/api/parents')).parents,

@@ -29,8 +29,7 @@ export function ParentSignInDialog({ access, onSignedIn, onCancel }: ParentSignI
     }
     setBusy(true);
     try {
-      await access.client.login(username.trim(), password, remember);
-      await access.refresh();
+      await access.login(username.trim(), password, remember);
       onSignedIn();
     } catch (e) {
       setPassword('');

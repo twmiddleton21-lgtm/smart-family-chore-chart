@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ApiError, AUTH_CHANGED_EVENT, createApiClient, toFamilyData } from './client';
+import { ApiError, AUTH_CHANGED_EVENT, createApiClient, createRequester, toFamilyData } from './client';
 
 type Call = { url: string; init: RequestInit };
 
@@ -126,5 +126,35 @@ describe('API client: sign-in answers', () => {
       if (had) g.window = previous;
       else delete g.window;
     }
+  });
+});
+
+describe('API client: timeouts', () => {
+  const hanging = (() => {
+    const calls: RequestInit[] = [];
+    const impl = ((_url: string, init: RequestInit) => {
+      calls.push(init);
+      return new Promise<Response>((_resolve, reject) => {
+        init.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+      });
+    }) as unknown as typeof fetch;
+    return { impl, calls };
+  })();
+
+  it('gives up with "unreachable" when a timeout is set and the server never answers', async () => {
+    const request = createRequester(hanging.impl);
+    const err = await errorOf(request('POST', '/api/auth/logout', {}, { timeoutMs: 20 }));
+    expect(err.kind).toBe('unreachable');
+    expect(err.message).toBe('The family server didn’t answer in time.');
+  });
+
+  it('sets no timeout unless asked', async () => {
+    const calls: RequestInit[] = [];
+    const ok = (async (_url: string, init: RequestInit) => {
+      calls.push(init);
+      return new Response('{"ok":true}', { status: 200 });
+    }) as unknown as typeof fetch;
+    await createRequester(ok)('GET', '/api/state');
+    expect(calls[0]!.signal).toBeUndefined();
   });
 });

@@ -83,3 +83,24 @@ export function DevBuildBanner() {
     </div>
   );
 }
+
+/**
+ * A sign-out the server hasn't confirmed. The parent area stays locked on this
+ * screen, but the session may still be active on the server, so say so
+ * plainly and offer to try again (it is also retried automatically).
+ */
+export function SignOutProblemBanner() {
+  const access = useAccess();
+  if (!access?.signOutProblem) return null;
+  return (
+    <div className="banner banner-warning" role="alert">
+      <span>
+        ⚠️ {access.signOutProblem} The parent area is locked on this screen, but the parent session may still be active
+        on the server until sign-out is confirmed.
+      </span>
+      <button type="button" className="button button-ghost" disabled={access.signingOut} onClick={() => void access.signOut()}>
+        {access.signingOut ? 'Trying…' : 'Try signing out again'}
+      </button>
+    </div>
+  );
+}

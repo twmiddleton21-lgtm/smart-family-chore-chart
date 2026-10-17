@@ -15,7 +15,7 @@ import { ParentGate } from './screens/ParentGate';
 import { DevParentNotice } from './screens/DevParentNotice';
 import { ParentArea, type ParentTab } from './screens/parent/ParentArea';
 import { MealReminderDialog } from './components/MealReminderDialog';
-import { AccessStatusScreen, DevBuildBanner, ServerStatusScreen } from './components/ServerStatus';
+import { AccessStatusScreen, DevBuildBanner, ServerStatusScreen, SignOutProblemBanner } from './components/ServerStatus';
 import { mealReminders, shouldShowMealReminder } from './lib/meals';
 import type { FamilyData } from './types';
 
@@ -61,6 +61,7 @@ function AccessGate() {
       ) : (
         <div className="app">
           <DevBuildBanner />
+          <SignOutProblemBanner />
           {status.setupRequired ? <SetupScreen access={load.access} /> : <LockedScreen access={load.access} />}
         </div>
       )}
@@ -107,29 +108,37 @@ function AppContent({ store, data }: { store: FamilyStore; data: FamilyData }) {
     setScreen({ name: 'parent' });
   };
 
+  /**
+   * End the parent session: lock this screen at once, then ask the server to
+   * end the session. Only a confirmed sign-out is reported as one; otherwise
+   * the screen stays locked and a warning (with retry) is shown.
+   */
+  const endParentSession = async (confirmedMessage: string) => {
+    if (!signIn) return;
+    const confirmed = await access.signOut();
+    if (confirmed) notify(confirmedMessage);
+    else notify('Couldn’t confirm sign-out with the family server. The parent area is locked on this screen.', 'error');
+  };
   /** Leave the parent area. On a shared family device this also signs the parent out. */
   const exitParent = async () => {
     goHome();
-    if (signIn && access.status.device && access.status.parent) {
-      await access.client.logout().catch(() => undefined);
-      await access.refresh();
-    }
+    if (signIn && access.status.device && access.status.parent) await endParentSession('Parent area locked and signed out.');
   };
   const signOut = async () => {
     goHome();
-    if (!signIn) return;
-    await access.client.logout().catch(() => undefined);
-    await access.refresh();
+    await endParentSession('Signed out.');
   };
 
-  // If the parent session ends (expired, signed out elsewhere, removed), leave the parent area.
+  // If the parent session ends (expired, signed out elsewhere, removed, or a
+  // sign-out locked this screen), leave the parent area.
   const inParentArea = screen.name === 'parent';
+  const signOutUnderway = signIn && (access.signingOut || access.signOutProblem !== null);
   useEffect(() => {
     if (inParentArea && signIn && !parentSignedIn) {
       setScreen({ name: 'dashboard' });
-      notify('The parent session ended. Please sign in again.', 'info');
+      if (!signOutUnderway) notify('The parent session ended. Please sign in again.', 'info');
     }
-  }, [inParentArea, signIn, parentSignedIn, notify]);
+  }, [inParentArea, signIn, parentSignedIn, signOutUnderway, notify]);
 
   // After 30 minutes without any input in the parent area, ask the server
   // again: if the session has expired there, the effect above locks the area.
@@ -153,6 +162,7 @@ function AppContent({ store, data }: { store: FamilyStore; data: FamilyData }) {
   return (
     <div className="app">
       {store.mode === 'api' && <DevBuildBanner />}
+      <SignOutProblemBanner />
       {store.saveFailed && (
         <div className="banner banner-warning" role="alert">
           ⚠️ This browser is not letting the app save. Changes will be lost when the page is closed. Check that site
