@@ -1,7 +1,7 @@
 import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from 'fastify';
 import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { buildApp, DEVICE_COOKIE, PARENT_COOKIE } from './app';
+import { buildApp, DEVICE_COOKIE, isAllowedHost, PARENT_COOKIE } from './app';
 import { hashPassword, verifyPassword } from './auth/crypto';
 import { PAIRING_CODE_TTL_MS, SESSION_POLICY, AuthService } from './auth/service';
 import { listBackups } from './db/backup';
@@ -23,14 +23,14 @@ let clock: number;
 let setupCode: string;
 let logs: string[];
 
-async function start(trustProxy: string[] = []) {
+async function start(trustProxy: string[] = [], allowedHosts: string[] = []) {
   opened = await openData(tmp.dir, 'Europe/London');
   clock = FIXED_NOW.getTime();
   auth = new AuthService(opened.db, { now: () => new Date(clock) });
   setupCode = auth.prepareSetup()!;
   logs = [];
   app = buildApp({
-    config: { devUnauthenticatedApi: false, bodyLimit: 64 * 1024, timeZone: 'Europe/London', port: 80, dataDir: tmp.dir, cookieSecure: 'auto', trustProxy },
+    config: { devUnauthenticatedApi: false, bodyLimit: 64 * 1024, timeZone: 'Europe/London', port: 80, dataDir: tmp.dir, cookieSecure: 'auto', trustProxy, allowedHosts },
     db: opened.db,
     store: opened.store,
     auth,
@@ -432,6 +432,54 @@ describe('a password change during a sign-in', () => {
     const r = await signingIn;
     expect(r.ok ? null : r.status).toBe(401);
     expect(sessionCount()).toBe(0);
+  });
+});
+
+// ---------- host names (SFCC_ALLOWED_HOSTS, DNS rebinding) ----------
+
+describe('host names the server answers to', () => {
+  const at = (host: string, url = '/api/auth/status', method: 'GET' | 'POST' = 'GET') =>
+    app.inject({ method, url, headers: { host }, ...(method === 'POST' ? { payload: {} } : {}) });
+
+  it('by default answers only to loopback names (any port), as the health check and an SSH tunnel use', async () => {
+    await start();
+    for (const host of ['localhost:3000', 'LOCALHOST:8080', '127.0.0.1:3000', '127.0.0.1', '[::1]:3000']) {
+      expect((await at(host)).statusCode, host).toBe(200);
+    }
+    expect((await at('127.0.0.1:3000', '/readyz')).statusCode).toBe(200);
+  });
+
+  it.each(['evil.example', 'evil.example:3000', '192.168.1.20:3000', 'localhost.evil.example', '127.0.0.1.nip.io:3000', 'chores.example.com'])(
+    'refuses Host %s (e.g. a DNS-rebinding page) with 421, on every route and before anything else',
+    async (host) => {
+      await start();
+      for (const [url, method] of [['/api/auth/status', 'GET'], ['/api/state', 'GET'], ['/readyz', 'GET'], ['/', 'GET'], ['/api/auth/login', 'POST'], ['/api/auth/setup', 'POST']] as const) {
+        const r = await at(host, url, method);
+        expect(r.statusCode, `${method} ${url}`).toBe(421);
+        expect(r.json().error).toBe('unknown_host');
+      }
+    },
+  );
+
+  it('refuses a missing or malformed Host', async () => {
+    await start();
+    for (const host of ['evil.example:99999', 'a b', '::1', '[not-ipv6]:3000', 'user@localhost']) {
+      expect((await at(host)).statusCode, JSON.stringify(host)).toBe(421);
+    }
+    // (The test client fills in an empty Host, so check the rule directly;
+    // Node itself rejects HTTP/1.1 requests without one.)
+    expect(isAllowedHost(undefined)).toBe(false);
+    expect(isAllowedHost('')).toBe(false);
+  });
+
+  it('answers to SFCC_ALLOWED_HOSTS entries (case-insensitive; a port in the entry must match)', async () => {
+    await start([], ['chores.example.com', '192.168.1.20:3000']);
+    expect((await at('chores.example.com')).statusCode).toBe(200);
+    expect((await at('Chores.Example.COM:443')).statusCode).toBe(200);
+    expect((await at('192.168.1.20:3000')).statusCode).toBe(200);
+    expect((await at('192.168.1.20:8080')).statusCode).toBe(421);
+    expect((await at('www.chores.example.com')).statusCode).toBe(421);
+    expect((await at('localhost:3000')).statusCode).toBe(200); // loopback always
   });
 });
 

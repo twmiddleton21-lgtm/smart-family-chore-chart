@@ -37,6 +37,7 @@ const base = `http://localhost:${port}`;
 const env = { ...process.env, SFCC_SERVER_IMAGE: image, SFCC_HOST_PORT: String(port), SFCC_TIMEZONE: 'Europe/London' };
 delete env.SFCC_COOKIE_SECURE;
 delete env.SFCC_TRUST_PROXY;
+delete env.SFCC_ALLOWED_HOSTS;
 const USER = 'rcparent';
 const PASSWORD = 'synthetic test passphrase';
 const results = [];
@@ -137,6 +138,8 @@ async function main() {
   );
   const anon = await fetch(`${base}/api/state`);
   check('family data needs sign-in (401) and there is no dev-mode header', anon.status === 401 && !anon.headers.get('x-sfcc-dev-mode'));
+  const rebound = run('docker', ['exec', containerId, 'node', '-e', "fetch('http://127.0.0.1:3000/api/auth/status',{headers:{host:'evil.example'}}).then(r=>console.log(r.status))"]).trim();
+  check('an unknown host name (DNS rebinding) is refused with 421', rebound === '421', rebound);
   const anonStatus = await (await fetch(`${base}/api/auth/status`)).json();
   check('normal mode, setup required', anonStatus.devMode === false && anonStatus.setupRequired === true);
 

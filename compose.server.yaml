@@ -33,6 +33,9 @@ services:
       SFCC_COOKIE_SECURE: ${SFCC_COOKIE_SECURE:-auto}
       # Reverse proxies to trust (IP addresses / CIDR ranges); empty = none.
       SFCC_TRUST_PROXY: ${SFCC_TRUST_PROXY:-}
+      # Host names the server answers to besides localhost/127.0.0.1/[::1]
+      # (e.g. the public name behind a proxy); empty = loopback names only.
+      SFCC_ALLOWED_HOSTS: ${SFCC_ALLOWED_HOSTS:-}
     volumes:
       - chorechart-data:/data
     read_only: true

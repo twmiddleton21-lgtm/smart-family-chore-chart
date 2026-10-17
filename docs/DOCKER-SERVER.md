@@ -71,6 +71,7 @@ Server settings, passed through to the container:
 | `SFCC_TIMEZONE` | `UTC` | Household time zone (IANA name), used for "today". An invalid value stops the server. |
 | `SFCC_COOKIE_SECURE` | `auto` | `auto` marks the session cookies `Secure` when the request arrived over HTTPS; `always` / `never` force it. |
 | `SFCC_TRUST_PROXY` | empty | IP addresses / CIDR ranges of trusted reverse proxies (see below). Empty means none. |
+| `SFCC_ALLOWED_HOSTS` | empty | Host names or IP addresses (each with an optional `:port`) the server answers to, besides `localhost`, `127.0.0.1` and `[::1]`, which always work. Requests with any other `Host` header get **421**; this blocks DNS-rebinding attacks. Set it to the public name behind a proxy, or the LAN address you open it on. Wildcards and invalid entries stop the server. |
 
 Fixed in the image (`Dockerfile.server`): `NODE_ENV=production`, `SFCC_HOST=0.0.0.0` (inside the container), `SFCC_PORT=3000`, `SFCC_DATA_DIR=/data`, `SFCC_STATIC_DIR=/app/dist-app`. `SFCC_SETUP_CODE` can also be set (12–64 letters/digits), but normally leave it unset so a random code is printed.
 
@@ -101,7 +102,7 @@ Requirements:
 1. **List every proxy hop the container sees, and only those.** List the proxy's address as seen from inside the container: its container IP on a shared Docker network, or that network's range if it holds nothing but the proxy and this app. If a request passes through two proxies, list both. Any listed address can set these headers, so a listed address must not be shared with anything else.
 2. **Don't trust the Docker host gateway** (for example `172.17.0.1`/`172.18.0.1`). Traffic through a published port appears to come from there, so trusting it would let any program that can reach the port choose its own client address.
 3. **The proxy must append the real client address to `X-Forwarded-For`** (most proxies do), **and send `X-Forwarded-Proto: https`.** Entries a client adds itself are on the left and are skipped, as long as the proxy appends the address it saw.
-4. **The proxy must pass the original `Host` header through.** If it rewrites `Host` (to `app:3000`, for example), every sign-in, change and sign-out is refused as cross-site (403).
+4. **The proxy must pass the original `Host` header through, and that name must be in `SFCC_ALLOWED_HOSTS`.** If it isn't listed, every request gets 421. If the proxy rewrites `Host` (to `app:3000`, for example), every sign-in, change and sign-out is refused as cross-site (403).
 5. **Don't publish the app's port to your network when using a proxy.** Keep the `127.0.0.1` port, or remove `ports:` if the proxy reaches the container over a shared Docker network.
 6. With the proxy trusted, keep `SFCC_COOKIE_SECURE=auto`, or use `always` to require HTTPS no matter what. Over plain HTTP, `Secure` cookies aren't sent back, so sign-in won't work. That's intended.
 - HSTS and TLS are the proxy's job.

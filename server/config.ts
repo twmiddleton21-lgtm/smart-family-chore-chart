@@ -36,6 +36,13 @@ export interface ServerConfig {
    * serve at /. Unset: API only (development, where Vite serves the app).
    */
   staticDir?: string;
+  /**
+   * Host names (or IP addresses) the server answers to, besides the loopback
+   * names (localhost, 127.0.0.1, [::1]), which are always accepted. Each may
+   * have a :port. Requests with any other Host header are refused, which
+   * blocks DNS-rebinding attacks.
+   */
+  allowedHosts: string[];
 }
 
 export class ConfigError extends Error {}
@@ -99,6 +106,42 @@ function parseTrustProxy(raw: string | undefined): string[] {
   return entries;
 }
 
+/**
+ * SFCC_ALLOWED_HOSTS: comma-separated host names or IP addresses (IPv6 in
+ * brackets), each with an optional :port, e.g. "chores.example.com" or
+ * "192.168.1.20:3000". Never a wildcard: the point is to refuse unknown names.
+ */
+function parseAllowedHosts(raw: string | undefined): string[] {
+  if (raw === undefined || raw.trim() === '') return [];
+  return raw.split(',').map((e) => {
+    const entry = e.trim().toLowerCase();
+    if (!parseHostHeader(entry)) {
+      throw new ConfigError(`SFCC_ALLOWED_HOSTS must list host names or IP addresses with an optional :port (comma-separated), got "${e.trim()}".`);
+    }
+    return entry;
+  });
+}
+
+const HOST_NAME = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/;
+
+/**
+ * Split a Host header (or an SFCC_ALLOWED_HOSTS entry) into a lower-case name
+ * and an optional port; null if it isn't a plain host name, IPv4 address or
+ * bracketed IPv6 address.
+ */
+export function parseHostHeader(value: string | undefined): { name: string; port: number | null } | null {
+  if (!value) return null;
+  const v = value.trim().toLowerCase();
+  const m = /^(\[[0-9a-f:.]+\]|[^:[\]]+)(?::(\d{1,5}))?$/.exec(v);
+  if (!m) return null;
+  const [, name, portText] = m as unknown as [string, string, string | undefined];
+  const port = portText === undefined ? null : Number(portText);
+  if (port !== null && (port < 1 || port > 65535)) return null;
+  if (name.startsWith('[')) return isIP(name.slice(1, -1)) === 6 ? { name, port } : null;
+  if (isIP(name) === 4 || (HOST_NAME.test(name) && !/^[0-9.]+$/.test(name))) return { name, port };
+  return null;
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()): ServerConfig {
   const production = env.NODE_ENV === 'production';
   const timeZone = env.SFCC_TIMEZONE || env.TZ || 'UTC';
@@ -117,6 +160,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.c
     ...(env.SFCC_SETUP_CODE ? { setupCode: parseSetupCode(env.SFCC_SETUP_CODE) } : {}),
     trustProxy: parseTrustProxy(env.SFCC_TRUST_PROXY),
     ...(env.SFCC_STATIC_DIR ? { staticDir: path.resolve(cwd, env.SFCC_STATIC_DIR) } : {}),
+    allowedHosts: parseAllowedHosts(env.SFCC_ALLOWED_HOSTS),
   };
   assertSafeConfig(config);
   return config;

@@ -4,7 +4,7 @@ import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyError, type FastifyInstance, type FastifyReply, type FastifyRequest, type FastifyServerOptions } from 'fastify';
 import { safeEqual } from './auth/crypto';
 import { AuthService, publicSessionId, type AuthContext, type AuthError } from './auth/service';
-import type { ServerConfig } from './config';
+import { parseHostHeader, type ServerConfig } from './config';
 import { createBackup } from './db/backup';
 import type { SqlDatabase } from './db/database';
 import { currentSchemaVersion, LATEST_SCHEMA_VERSION } from './db/migrations';
@@ -26,7 +26,7 @@ import type { FamilyStore } from './family/store';
 
 export interface AppDeps {
   config: Pick<ServerConfig, 'devUnauthenticatedApi' | 'bodyLimit' | 'timeZone' | 'port' | 'dataDir'> &
-    Partial<Pick<ServerConfig, 'cookieSecure' | 'trustProxy' | 'staticDir'>>;
+    Partial<Pick<ServerConfig, 'cookieSecure' | 'trustProxy' | 'staticDir' | 'allowedHosts'>>;
   db: SqlDatabase;
   store: FamilyStore;
   /** Required in normal mode (fails closed without it). */
@@ -76,6 +76,24 @@ export function isCrossSite(request: FastifyRequest): boolean {
   } catch {
     return true; // "null" or malformed
   }
+}
+
+const LOOPBACK_NAMES = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+/**
+ * Normal mode: is this Host header one the server answers to? Loopback names
+ * (any port) always; otherwise only SFCC_ALLOWED_HOSTS entries (an entry
+ * without a port matches any port). A page on another site that resolves its
+ * own name to this server (DNS rebinding) sends its own name, and is refused.
+ */
+export function isAllowedHost(host: string | undefined, allowed: readonly string[] = []): boolean {
+  const h = parseHostHeader(host);
+  if (!h) return false;
+  if (LOOPBACK_NAMES.has(h.name)) return true;
+  return allowed.some((entry) => {
+    const e = parseHostHeader(entry);
+    return e !== null && e.name === h.name && (e.port === null || e.port === h.port);
+  });
 }
 
 const commandBodySchema = {
@@ -233,6 +251,13 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     });
     app.get('/api/auth/status', async () => ({ devMode: true, setupRequired: false, parent: null, device: null, sessionId: null }));
   } else {
+    // Only answer to known host names (blocks DNS rebinding), on EVERY request.
+    const allowedHosts = config.allowedHosts ?? [];
+    app.addHook('onRequest', async (request, reply) => {
+      if (!isAllowedHost(request.headers.host, allowedHosts)) {
+        return reply.status(421).send({ error: 'unknown_host', message: 'This server doesn’t answer to this address. Add it to SFCC_ALLOWED_HOSTS.' });
+      }
+    });
     // Cross-site check on EVERY state-changing request (not just /api paths,
     // so encoded paths cannot slip past a prefix check).
     app.addHook('onRequest', async (request, reply) => {

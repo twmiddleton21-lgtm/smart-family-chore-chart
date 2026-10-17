@@ -44,6 +44,23 @@ describe('configuration', () => {
     },
   );
 
+  it('answers only to loopback names by default; SFCC_ALLOWED_HOSTS adds explicit names', () => {
+    expect(loadConfig({}).allowedHosts).toEqual([]);
+    expect(loadConfig({ SFCC_ALLOWED_HOSTS: 'Chores.Example.com, 192.168.1.20:3000,[fd00::1]:3000,localhost' }).allowedHosts).toEqual([
+      'chores.example.com',
+      '192.168.1.20:3000',
+      '[fd00::1]:3000',
+      'localhost',
+    ]);
+  });
+
+  it.each(['*', '*.example.com', 'https://chores.example.com', 'chores.example.com/path', 'a b', 'example.com:0', 'example.com:70000', '-bad.example', 'fd00::1', 'chores.example.com,', '1.2.3'])(
+    'refuses SFCC_ALLOWED_HOSTS=%s',
+    (value) => {
+      expect(() => loadConfig({ SFCC_ALLOWED_HOSTS: value })).toThrow(ConfigError);
+    },
+  );
+
   it('refuses a trusted proxy together with the development API', () => {
     expect(() => loadConfig({ SFCC_DEV_UNAUTHENTICATED_API: '1', SFCC_TRUST_PROXY: '127.0.0.1' })).toThrow(/SFCC_TRUST_PROXY/);
   });

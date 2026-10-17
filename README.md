@@ -132,6 +132,7 @@ Settings read by `compose.server.yaml`:
 | `SFCC_TIMEZONE` | `UTC` | Household time zone (IANA name such as `Europe/London`), used for "today". |
 | `SFCC_COOKIE_SECURE` | `auto` | `auto`, `always` or `never` (see [HTTPS](#networking-https-and-reverse-proxies)). |
 | `SFCC_TRUST_PROXY` | empty | Trusted reverse-proxy addresses (see [reverse proxies](#networking-https-and-reverse-proxies)). |
+| `SFCC_ALLOWED_HOSTS` | empty | Other host names or addresses the server answers to, besides `localhost`, `127.0.0.1` and `[::1]` (see [networking](#networking-https-and-reverse-proxies)). |
 
 The image always runs in production mode (`NODE_ENV=production`). It runs as an unprivileged user with a read-only root filesystem, all Linux capabilities dropped, and a health check on `/readyz`. The development-only mode without sign-in can't be enabled in it.
 
@@ -227,13 +228,15 @@ This prints a temporary password and signs that parent out everywhere. Sign in w
 ### Networking, HTTPS and reverse proxies
 
 - **Default: this computer only.** The port is published on `127.0.0.1`.
-  - To use it from other devices on your home network, change the `ports:` line in `compose.server.yaml` to `"0.0.0.0:${SFCC_HOST_PORT:-3000}:3000"`. Only do this on a network you trust: it is then plain HTTP.
+  - To use it from other devices on your home network, change the `ports:` line in `compose.server.yaml` to `"0.0.0.0:${SFCC_HOST_PORT:-3000}:3000"`, and set `SFCC_ALLOWED_HOSTS` to the address you'll type (for example `192.168.1.20`). Only do this on a network you trust: it is then plain HTTP.
+- **Host names:** the server only answers to `localhost`, `127.0.0.1`, `[::1]` and the names in `SFCC_ALLOWED_HOSTS`. Anything else gets 421. This blocks DNS-rebinding attacks, where another website points its own name at your server.
   - To reach it from elsewhere, prefer an SSH tunnel or a VPN over opening ports.
 - **Plain HTTP:** for direct local testing, keep `SFCC_COOKIE_SECURE=auto`.
 - **HTTPS behind a reverse proxy** (Caddy, nginx, a tunnel): either set `SFCC_COOKIE_SECURE=always`, or list the proxy in `SFCC_TRUST_PROXY` and keep `auto`. A trusted proxy also gives the rate limits each client's real address; without one, everyone behind the proxy shares one limit.
 - **`SFCC_TRUST_PROXY` requirements:**
   - List only IP addresses or CIDR ranges that belong to the proxy hops the container sees. Never list the Docker host gateway.
   - The proxy must append the real client to `X-Forwarded-For`, send `X-Forwarded-Proto: https`, and **pass the original `Host` header through**. Otherwise every change is refused as cross-site.
+  - Add the public host name to `SFCC_ALLOWED_HOSTS`.
   - Full details: [`docs/DOCKER-SERVER.md`](docs/DOCKER-SERVER.md#trusted-reverse-proxy-exact-requirements).
 - **Not yet confirmed:** no reverse-proxy or Cloudflare Tunnel deployment has been tested.
 
@@ -246,6 +249,7 @@ This prints a temporary password and signs that parent out everywhere. Sign in w
 | Port 3000 already in use | Set `SFCC_HOST_PORT` to another free port. |
 | Container not `healthy` | `docker compose -f compose.server.yaml logs app`. The server says why it refused to start (for example an invalid `SFCC_TIMEZONE`). |
 | No setup code in the logs | It's only printed while no parent exists. Restart the container to print a new one. If parents exist, sign in, or use `reset-password`. |
+| "This server doesn't answer to this address" (421) | Add the host name or address you're using to `SFCC_ALLOWED_HOSTS`. `localhost`, `127.0.0.1` and `[::1]` always work. |
 | "Requests from other websites are not allowed" (403) | The browser's `Origin` doesn't match the `Host` the server sees. Behind a proxy, pass the original `Host` header through. |
 | Sign-in doesn't stick when you use plain HTTP at an address other than `localhost` | The cookies are marked `Secure` (`SFCC_COOKIE_SECURE=always`, or a trusted proxy said HTTPS), and browsers only accept those over HTTPS or on `localhost`. Use HTTPS, or `auto` for plain-HTTP testing. |
 | "Too many sign-in attempts" (429) | Wait up to 15 minutes. Restarting the container also clears the counters. |
@@ -274,9 +278,7 @@ Automated tests passing doesn't make these go away:
 - **Two tabs signing in at the same moment** can leave one session orphaned until it expires. Nobody gains access.
 - **A restore** requires every kiosk to be paired again, and brings back the backup's passwords.
 - **Backups** contain password hashes. There are no scheduled backups.
-- **Defences not yet implemented:**
-  - asking for the password again before adding a parent or creating a pairing code;
-  - restricting which host names the server answers to.
+- **Not yet implemented:** asking for the password again before adding a parent or creating a pairing code.
 - **Node.js's built-in SQLite module is still marked experimental.**
 - **Details:** [`docs/SERVER-DEVELOPMENT.md`](docs/SERVER-DEVELOPMENT.md) and [`docs/DOCKER-SERVER.md`](docs/DOCKER-SERVER.md).
 
