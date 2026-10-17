@@ -144,6 +144,8 @@ docker compose -f compose.server.yaml run --rm app node dist-server/cli.js resto
 docker compose -f compose.server.yaml start app
 ```
 
+**Git Bash on Windows** rewrites arguments that look like Unix paths (such as `/data/backups/…`) before Docker sees them, so the restore fails with "File not found". Run it as `MSYS_NO_PATHCONV=1 docker compose … restore /data/backups/<file> --yes`, or use PowerShell, where it works as shown.
+
 - The current database is moved to `/data/backups/replaced-<time>.db`, not deleted.
 - **A restore signs everyone out.** All sessions, paired devices and pairing codes in the restored copy are removed, so a backup can't bring back a session that was signed out, or a device that was unpaired, after it was taken.
   - Parents sign in again, and kiosks are paired again with new codes.
