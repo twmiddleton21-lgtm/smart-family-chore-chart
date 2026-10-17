@@ -1,7 +1,7 @@
-# Server (Stage A): development notes
+# Shared family server: development notes (Stages A and B)
 
-> **Status: development foundation only. Not for real families yet.**
-> The server has **no authentication** so far. The released app still stores data in each browser's localStorage, and the frontend does **not** use this server yet. Do not expose this server on a network or use it for real family data until parent login, device pairing and authorisation exist (later stages).
+> **Status: development build only. Not for real families yet.**
+> The server has **no authentication** so far. The **default** app build still stores data in each browser's localStorage, exactly like the released v0.3.0. Only the explicit development build (`npm run dev:api`) uses the server. Do not expose the server on a network or use it for real family data until parent login, device pairing and authorisation exist (Stage C).
 
 ## What exists
 
@@ -70,6 +70,38 @@ npm run server:cli -- restore <file> --yes # STOP THE SERVER FIRST
 - **Never copy a live `chorechart.db` by hand.** Use the backup command.
 - Scheduled daily backups aren't implemented yet (planned for the Compose stage).
 
+## Frontend with the server (Stage B, development only)
+
+The data source is chosen at **build time** and never auto-detected:
+
+| Build | Data source | How |
+|---|---|---|
+| Default (`npm run dev`, `npm run build`, the published image) | Browser localStorage (released behaviour) | nothing |
+| Development | The shared family server | `npm run dev:server` (API on 127.0.0.1:3000) **and** `npm run dev:api` (app on http://localhost:4175, `/api` forwarded to the server) |
+
+In the development build:
+- All data is read from and saved to the server. After every change the app re-reads the server state, so all devices end up showing what the server stored after a reload (live updates come in Stage D).
+- A persistent banner says it's a development build with **no sign-in**. The parent area shows a plain "no parent sign-in yet" notice instead of the old PIN, so nothing looks like authentication.
+- If the server can't be reached, the first load shows a "Can't reach the family server" screen with **Try again**. Later failures show a banner, keep the last data visible and refuse changes; there's no offline queue.
+- Edit and delete dialogs remember the record version from when they opened. If another device changed it meanwhile, the save is refused: "This was changed on another device, so your change was not saved. The latest version has been loaded."
+
+## Export and import
+
+- **Export** (both builds): Parent area → Settings → Family data → *Export family data* downloads `chore-chart-export-<date>.json` (`{app, exportFormat: 1, exportedAt, source, data}`). The old client-side PIN is never included.
+- **Import** (development build only): *Import from a file* (an export file, or raw v0.1.0-v0.3.0 browser data), or *Import from this browser* (offered only when this site address holds old browser data).
+  1. **Preview:** the server validates and, if needed, upgrades the data (format 1, 2 or 3) and shows a summary. Nothing changes.
+  2. **Confirm:** if the server already has family data, the parent must tick *"Yes, replace all family data on this server"*.
+  3. **Apply:** the server re-validates; refuses if the data differs from the preview (checksum) or the server changed since the preview; makes a verified backup (`backups/…-pre-import.db`); then replaces everything in **one transaction** (all or nothing).
+- Files that aren't family data, come from a newer version, or contain **any** invalid record are **rejected** (nothing is silently dropped). The old PIN in imported data is ignored and never stored.
+- Import is never automatic. Importing from this browser leaves the browser's own data in place and only records when it was imported.
+- **v0.3.0 users** (no Export button): open the old app at its usual address, open the browser console and run `copy(localStorage.getItem('smart-family-chore-chart:data'))`, paste into a file such as `family.json`, then use *Import from a file*.
+
+Server routes (development mode only; 503 in default mode): `GET /api/export`, `POST /api/import/preview {data}`, `POST /api/import/apply {data, checksum, expectedStateVersion, replace}` (5 MB limit for imports).
+
+## Browser tests
+
+`npm run test:e2e` runs Playwright with the installed Google Chrome (no browser download). It starts its own throwaway server (dev mode, temporary data) and Vite instances on ports 3199, 4176 and 4177.
+
 ## Not done yet (later stages)
 
-Frontend integration and import from the browser (B); parent accounts, device pairing, sessions, CSRF and rate limiting (C); live updates (D); Docker Compose installation and serving the frontend from this server (E).
+Parent accounts, device pairing, sessions, CSRF and rate limiting (C); live updates (D); Docker Compose installation and serving the frontend from this server (E).

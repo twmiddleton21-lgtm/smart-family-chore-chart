@@ -6,6 +6,9 @@ node_modules
 dist
 dist-server
 data
+test-results
+playwright-report
+e2e
 coverage
 *.log
 

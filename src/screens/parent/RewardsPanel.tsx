@@ -15,12 +15,18 @@ interface PanelProps {
   actions: FamilyActions;
 }
 
-type Editing = { mode: 'add' } | { mode: 'edit'; reward: Reward } | null;
+// `version`: the record version when the dialog opened, so a stale save is refused (409).
+type Editing = { mode: 'add' } | { mode: 'edit'; reward: Reward; version: number } | null;
 
 export function RewardsPanel({ data, actions }: PanelProps) {
   const notify = useToast();
   const [editing, setEditing] = useState<Editing>(null);
   const [deleting, setDeleting] = useState<Reward | null>(null);
+  const [deleteVersion, setDeleteVersion] = useState(0);
+  const startDelete = (item: Reward) => {
+    setDeleteVersion(actions.versionOf(`reward:${item.id}`));
+    setDeleting(item);
+  };
   const rewards = [...data.rewards].sort((a, b) => a.cost - b.cost);
 
   return (
@@ -53,7 +59,7 @@ export function RewardsPanel({ data, actions }: PanelProps) {
                 <button
                   type="button"
                   className="button button-secondary"
-                  onClick={() => setEditing({ mode: 'edit', reward })}
+                  onClick={() => setEditing({ mode: 'edit', reward, version: actions.versionOf(`reward:${reward.id}`) })}
                   aria-label={`Edit ${reward.name}`}
                 >
                   Edit
@@ -61,7 +67,7 @@ export function RewardsPanel({ data, actions }: PanelProps) {
                 <button
                   type="button"
                   className="button button-danger-outline"
-                  onClick={() => setDeleting(reward)}
+                  onClick={() => startDelete(reward)}
                   aria-label={`Delete ${reward.name}`}
                 >
                   Delete
@@ -76,9 +82,13 @@ export function RewardsPanel({ data, actions }: PanelProps) {
         <RewardForm
           reward={editing.mode === 'edit' ? editing.reward : undefined}
           onCancel={() => setEditing(null)}
-          onSave={(value) => {
+          onSave={async (value) => {
             const id = editing.mode === 'edit' ? editing.reward.id : undefined;
-            actions.saveReward(value, id);
+            const result = await actions.saveReward(value, id, editing.mode === 'edit' ? editing.version : undefined);
+            if (!result.ok) {
+              notify(result.error, 'error');
+              return;
+            }
             setEditing(null);
             notify(id ? `Saved “${value.name}”.` : `Added “${value.name}”.`);
           }}
@@ -91,8 +101,13 @@ export function RewardsPanel({ data, actions }: PanelProps) {
           tone="danger"
           confirmLabel="Yes, delete it"
           onCancel={() => setDeleting(null)}
-          onConfirm={() => {
-            actions.deleteReward(deleting.id);
+          onConfirm={async () => {
+            const result = await actions.deleteReward(deleting.id, deleteVersion);
+            if (!result.ok) {
+              notify(result.error, 'error');
+              setDeleting(null);
+              return;
+            }
             notify(`Deleted “${deleting.name}”.`, 'info');
             setDeleting(null);
           }}

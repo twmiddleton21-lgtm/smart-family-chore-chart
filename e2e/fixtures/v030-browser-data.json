@@ -1,0 +1,19 @@
+{
+  "version": 3,
+  "settings": { "familyName": "Test Family", "parentPin": "4321", "mealReminderDismissedOn": null },
+  "children": [
+    { "id": "a", "name": "Alex", "avatar": "🐼", "color": "pink" },
+    { "id": "b", "name": "Bea", "avatar": "🦊", "color": "teal" }
+  ],
+  "chores": [
+    { "id": "a-bed", "childId": "a", "title": "Make bed", "icon": "🛏️", "points": 5, "period": "morning", "schedule": { "type": "daily" } },
+    { "id": "b-bed", "childId": "b", "title": "Make bed", "icon": "🛏️", "points": 7, "period": "morning", "schedule": { "type": "daily" } }
+  ],
+  "rewards": [{ "id": "r-small", "name": "Sticker", "description": "", "icon": "⭐", "cost": 5 }],
+  "completions": [
+    { "id": "c1", "choreId": "a-bed", "childId": "a", "date": "2026-10-12", "points": 5, "completedAt": "2026-10-12T08:00:00.000Z" }
+  ],
+  "redemptions": [],
+  "meals": [],
+  "foodOptions": { "mains": [{ "id": "fm-pizza", "name": "Pizza" }], "puddings": [{ "id": "fp-jelly", "name": "Jelly" }] }
+}

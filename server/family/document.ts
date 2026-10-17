@@ -1,4 +1,5 @@
 import { DATA_VERSION, type FamilyData, type Settings } from '../../src/types';
+import { isEmptyFamily } from '../../src/lib/family';
 import { mondayOf } from '../../src/lib/meals';
 import { parseFamilyData } from '../../src/lib/storage';
 
@@ -28,16 +29,7 @@ export function emptyFamily(): FamilyDocument {
 }
 
 export function isEmptyHousehold(doc: FamilyDocument): boolean {
-  return (
-    doc.children.length === 0 &&
-    doc.chores.length === 0 &&
-    doc.rewards.length === 0 &&
-    doc.completions.length === 0 &&
-    doc.redemptions.length === 0 &&
-    doc.meals.length === 0 &&
-    doc.foodOptions.mains.length === 0 &&
-    doc.foodOptions.puddings.length === 0
-  );
+  return isEmptyFamily(doc);
 }
 
 /** For calling src/lib functions. The placeholder PIN is never persisted. */

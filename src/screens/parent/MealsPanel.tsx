@@ -20,6 +20,7 @@ import { validateMealRows } from '../../lib/validation';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { ErrorSummary } from '../../components/Field';
 import type { FamilyActions } from '../../state/useFamilyStore';
+import { recordKey } from '../../state/apiCommands';
 import { useToast } from '../../state/toast';
 import { FoodOptionsPanel } from './FoodOptionsPanel';
 
@@ -277,6 +278,11 @@ function WeekEditor({ data, actions, today, childId, childName, monday, previous
   const notify = useToast();
   const [rows, setRows] = useState<MealRow[]>(() => weekRows(data, childId, monday));
   const [errors, setErrors] = useState<Record<string, string>>({});
+  // Version of this child's week when editing started (server mode), so a
+  // save based on stale data is refused instead of overwriting newer meals.
+  const versionKey = recordKey.mealWeek(childId, monday);
+  const [baseVersion, setBaseVersion] = useState(() => actions.versionOf(versionKey));
+  const [saving, setSaving] = useState(false);
 
   const mains = sortedOptions(optionsFor(data, 'main'));
   const puddings = sortedOptions(optionsFor(data, 'pudding'));
@@ -301,19 +307,23 @@ function WeekEditor({ data, actions, today, childId, childName, monday, previous
     notify('Copied last week’s meals. Check them, then save.', 'info');
   };
 
-  const submit = (event: FormEvent) => {
+  const submit = async (event: FormEvent) => {
     event.preventDefault();
+    if (saving) return;
     const result = validateMealRows(rows);
     if (!result.ok) {
       setErrors(result.errors);
       return;
     }
     setErrors({});
-    const saved = actions.saveMealWeek(childId, monday, result.value);
+    setSaving(true);
+    const saved = await actions.saveMealWeek(childId, monday, result.value, baseVersion);
+    setSaving(false);
     if (!saved.ok) {
       notify(saved.error, 'error');
       return;
     }
+    setBaseVersion(actions.versionOf(versionKey));
     setRows(result.value);
     notify(`Saved ${childName}’s meals for the week of ${fmtDate(weekFormat, monday)}.`);
   };

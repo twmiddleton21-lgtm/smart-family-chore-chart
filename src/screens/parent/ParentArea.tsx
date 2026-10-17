@@ -1,5 +1,6 @@
 import { useRef, useState, type KeyboardEvent } from 'react';
 import type { DateKey, FamilyData } from '../../types';
+import type { DataSource } from '../../config';
 import { ScreenTitle } from '../../components/ScreenTitle';
 import type { FamilyActions } from '../../state/useFamilyStore';
 import { ChoresPanel } from './ChoresPanel';
@@ -22,12 +23,13 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
 interface ParentAreaProps {
   data: FamilyData;
   actions: FamilyActions;
+  mode: DataSource;
   today: DateKey;
   initialTab?: ParentTab;
   onExit: () => void;
 }
 
-export function ParentArea({ data, actions, today, initialTab = 'chores', onExit }: ParentAreaProps) {
+export function ParentArea({ data, actions, mode, today, initialTab = 'chores', onExit }: ParentAreaProps) {
   const [tab, setTab] = useState<Tab>(initialTab);
   const tabRefs = useRef<Record<Tab, HTMLButtonElement | null>>({
     chores: null,
@@ -89,7 +91,7 @@ export function ParentArea({ data, actions, today, initialTab = 'chores', onExit
         {tab === 'children' && <ChildrenPanel data={data} actions={actions} />}
         {tab === 'meals' && <MealsPanel data={data} actions={actions} today={today} />}
         {tab === 'rewards' && <RewardsPanel data={data} actions={actions} />}
-        {tab === 'settings' && <SettingsPanel data={data} actions={actions} />}
+        {tab === 'settings' && <SettingsPanel data={data} actions={actions} mode={mode} />}
       </section>
     </main>
   );

@@ -1,6 +1,8 @@
 node_modules
 dist
 dist-server
+test-results/
+playwright-report/
 
 # Local server data (SQLite database and backups) - never commit family data
 data/

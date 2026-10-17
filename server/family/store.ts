@@ -3,7 +3,7 @@ import { DATA_VERSION } from '../../src/types';
 import type { SqlDatabase } from '../db/database';
 import { todayInZone } from '../time';
 import { executeCommand, type Command, type CommandError } from './commands';
-import { changedRecords, emptyFamily, parseStoredDocument, validateDocument, type FamilyDocument } from './document';
+import { changedRecords, emptyFamily, isEmptyHousehold, parseStoredDocument, recordSnapshots, validateDocument, type FamilyDocument } from './document';
 
 // The authoritative family state for this installation, stored as one
 // versioned document in SQLite. Every change runs inside a single write
@@ -23,6 +23,10 @@ export interface FamilyState {
 export type ApplyResult =
   | { ok: true; stateVersion: number; changed: string[]; noChange: boolean }
   | CommandError;
+
+export type ImportResult =
+  | { ok: true; stateVersion: number }
+  | { ok: false; status: 409; error: 'changed_since_preview' | 'server_not_empty'; message: string };
 
 export interface StoreOptions {
   timeZone: string;
@@ -94,6 +98,47 @@ export class FamilyStore {
 
   stateVersion(): number {
     return this.readRow().row.version;
+  }
+
+  isEmpty(): boolean {
+    return isEmptyHousehold(this.readRow().doc);
+  }
+
+  /**
+   * Replace the whole family document with an imported one, all or
+   * nothing. Refuses if the state changed since the preview
+   * (expectedStateVersion) or if the household is not empty and the caller
+   * did not explicitly ask to replace it. Every record is re-versioned so
+   * any edit form opened before the import gets a conflict.
+   */
+  importDocument(doc: FamilyDocument, options: { expectedStateVersion: number; replace: boolean }, actor: string): ImportResult {
+    return this.db.transaction((): ImportResult => {
+      const { row, doc: current } = this.readRow();
+      if (row.version !== options.expectedStateVersion) {
+        return { ok: false, status: 409, error: 'changed_since_preview', message: 'The family data changed since the preview. Please check the preview again.' };
+      }
+      if (!isEmptyHousehold(current) && !options.replace) {
+        return { ok: false, status: 409, error: 'server_not_empty', message: 'This server already has family data. Confirm that you want to replace it.' };
+      }
+      const next = validateDocument(JSON.parse(JSON.stringify(doc)), true);
+      const nextVersion = row.version + 1;
+      const at = this.now().toISOString();
+      this.db.run('UPDATE family_state SET version = ?, format = ?, data = ?, updated_at = ? WHERE id = 1 AND version = ?', nextVersion, DATA_VERSION, JSON.stringify(next), at, row.version);
+      const keys = new Set([...recordSnapshots(current).keys(), ...recordSnapshots(next).keys()]);
+      for (const key of keys) {
+        const split = key.indexOf(':');
+        this.db.run(
+          `INSERT INTO record_versions (kind, record_id, version) VALUES (?, ?, ?)
+           ON CONFLICT (kind, record_id) DO UPDATE SET version = excluded.version`,
+          key.slice(0, split),
+          key.slice(split + 1),
+          nextVersion,
+        );
+      }
+      this.db.run('INSERT INTO command_log (state_version, type, actor, applied_at) VALUES (?, ?, ?, ?)', nextVersion, 'importFamilyData', actor, at);
+      this.options.beforeCommit?.();
+      return { ok: true, stateVersion: nextVersion };
+    });
   }
 
   apply(command: Command, actor: string): ApplyResult {

@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { PERIODS, type Child, type Chore, type DateKey, type FamilyData } from '../types';
 import { childProgress, choresByPeriod, choresForChildOn, isChoreDone } from '../lib/chores';
 import { pointsBalance } from '../lib/points';
@@ -27,9 +28,14 @@ export function ChildChart({ data, child, today, actions, onBack, onOpenRewards 
   const balance = pointsBalance(data, child.id);
   const allDone = progress.total > 0 && progress.done === progress.total;
 
-  const handleToggle = (chore: Chore) => {
+  // Ignore repeat taps on a chore while its change is being saved.
+  const busy = useRef(new Set<string>());
+
+  const handleToggle = async (chore: Chore) => {
+    if (busy.current.has(chore.id)) return;
+    busy.current.add(chore.id);
     const wasDone = isChoreDone(data, chore, today);
-    const result = actions.toggleChore(chore.id, today);
+    const result = await actions.toggleChore(chore.id).finally(() => busy.current.delete(chore.id));
     if (!result.ok) {
       notify(result.error, 'error');
       return;

@@ -17,12 +17,18 @@ interface PanelProps {
   actions: FamilyActions;
 }
 
-type Editing = { mode: 'add' } | { mode: 'edit'; child: Child } | null;
+// `version`: the record version when the dialog opened, so a stale save is refused (409).
+type Editing = { mode: 'add' } | { mode: 'edit'; child: Child; version: number } | null;
 
 export function ChildrenPanel({ data, actions }: PanelProps) {
   const notify = useToast();
   const [editing, setEditing] = useState<Editing>(null);
   const [deleting, setDeleting] = useState<Child | null>(null);
+  const [deleteVersion, setDeleteVersion] = useState(0);
+  const startDelete = (item: Child) => {
+    setDeleteVersion(actions.versionOf(`child:${item.id}`));
+    setDeleting(item);
+  };
 
   return (
     <div className="panel">
@@ -52,7 +58,7 @@ export function ChildrenPanel({ data, actions }: PanelProps) {
                 <button
                   type="button"
                   className="button button-secondary"
-                  onClick={() => setEditing({ mode: 'edit', child })}
+                  onClick={() => setEditing({ mode: 'edit', child, version: actions.versionOf(`child:${child.id}`) })}
                   aria-label={`Edit ${child.name}`}
                 >
                   Edit
@@ -60,7 +66,7 @@ export function ChildrenPanel({ data, actions }: PanelProps) {
                 <button
                   type="button"
                   className="button button-danger-outline"
-                  onClick={() => setDeleting(child)}
+                  onClick={() => startDelete(child)}
                   aria-label={`Delete ${child.name}`}
                 >
                   Delete
@@ -75,9 +81,13 @@ export function ChildrenPanel({ data, actions }: PanelProps) {
         <ChildForm
           child={editing.mode === 'edit' ? editing.child : undefined}
           onCancel={() => setEditing(null)}
-          onSave={(value) => {
+          onSave={async (value) => {
             const id = editing.mode === 'edit' ? editing.child.id : undefined;
-            actions.saveChild(value, id);
+            const result = await actions.saveChild(value, id, editing.mode === 'edit' ? editing.version : undefined);
+            if (!result.ok) {
+              notify(result.error, 'error');
+              return;
+            }
             setEditing(null);
             notify(id ? `Saved ${value.name}’s profile.` : `Added ${value.name}! Now give them some chores.`);
           }}
@@ -90,8 +100,13 @@ export function ChildrenPanel({ data, actions }: PanelProps) {
           tone="danger"
           confirmLabel={`Yes, delete ${deleting.name}`}
           onCancel={() => setDeleting(null)}
-          onConfirm={() => {
-            actions.deleteChild(deleting.id);
+          onConfirm={async () => {
+            const result = await actions.deleteChild(deleting.id, deleteVersion);
+            if (!result.ok) {
+              notify(result.error, 'error');
+              setDeleting(null);
+              return;
+            }
             notify(`Deleted ${deleting.name}’s profile.`, 'info');
             setDeleting(null);
           }}

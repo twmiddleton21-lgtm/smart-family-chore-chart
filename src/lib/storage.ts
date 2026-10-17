@@ -359,3 +359,48 @@ export function getBrowserStorage(): StorageLike | null {
     return null;
   }
 }
+
+// ---------- Moving browser data to a family server (import) ----------
+
+/** Records that this browser's data was imported to a server (data is kept). */
+export const MIGRATION_MARKER_KEY = 'smart-family-chore-chart:migrated-to-server';
+
+export interface MigrationMarker {
+  importedAt: string;
+}
+
+/**
+ * The raw saved family data in this browser (as v0.1.0-v0.3.0 stored it),
+ * parsed as JSON, or null if there is none or it is unreadable. Read-only:
+ * never modifies or clears anything.
+ */
+export function readBrowserFamilyData(storage: StorageLike | null): unknown {
+  if (!storage) return null;
+  try {
+    const raw = storage.getItem(STORAGE_KEY);
+    return raw === null ? null : JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+export function readMigrationMarker(storage: StorageLike | null): MigrationMarker | null {
+  if (!storage) return null;
+  try {
+    const raw = storage.getItem(MIGRATION_MARKER_KEY);
+    if (!raw) return null;
+    const v = JSON.parse(raw) as Partial<MigrationMarker>;
+    return typeof v.importedAt === 'string' ? { importedAt: v.importedAt } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Remember the import; the browser's own family data is left untouched. */
+export function writeMigrationMarker(storage: StorageLike | null, marker: MigrationMarker): void {
+  try {
+    storage?.setItem(MIGRATION_MARKER_KEY, JSON.stringify(marker));
+  } catch {
+    // Best effort only.
+  }
+}

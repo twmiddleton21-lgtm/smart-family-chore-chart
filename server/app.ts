@@ -2,7 +2,10 @@ import Fastify, { type FastifyError, type FastifyInstance, type FastifyRequest }
 import type { ServerConfig } from './config';
 import type { SqlDatabase } from './db/database';
 import { currentSchemaVersion, LATEST_SCHEMA_VERSION } from './db/migrations';
+import path from 'node:path';
+import { createBackup } from './db/backup';
 import { COMMAND_TYPES, type Command } from './family/commands';
+import { buildExportFile, parseImport } from './family/importer';
 import type { FamilyStore } from './family/store';
 
 // HTTP API. Stage A has NO authentication yet, so family-data routes exist
@@ -15,7 +18,7 @@ import type { FamilyStore } from './family/store';
 // Otherwise every /api route answers 503 and no family data is reachable.
 
 export interface AppDeps {
-  config: Pick<ServerConfig, 'devUnauthenticatedApi' | 'bodyLimit' | 'timeZone' | 'port'>;
+  config: Pick<ServerConfig, 'devUnauthenticatedApi' | 'bodyLimit' | 'timeZone' | 'port' | 'dataDir'>;
   db: SqlDatabase;
   store: FamilyStore;
   logger?: boolean;
@@ -47,6 +50,28 @@ const commandBodySchema = {
     type: { type: 'string', enum: [...COMMAND_TYPES] },
     payload: { type: 'object' },
     expectedVersion: { type: 'integer', minimum: 0 },
+  },
+} as const;
+
+/** Imports can be larger than ordinary commands (a year of history). */
+export const IMPORT_BODY_LIMIT = 5 * 1024 * 1024;
+
+const importPreviewSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data'],
+  properties: { data: { type: 'object' } },
+} as const;
+
+const importApplySchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'checksum', 'expectedStateVersion', 'replace'],
+  properties: {
+    data: { type: 'object' },
+    checksum: { type: 'string', pattern: '^[0-9a-f]{64}$' },
+    expectedStateVersion: { type: 'integer', minimum: 1 },
+    replace: { type: 'boolean' },
   },
 } as const;
 
@@ -152,6 +177,53 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     }
     return { stateVersion: result.stateVersion, changed: result.changed, noChange: result.noChange };
   });
+
+  // ---------- export / import (development mode only for now) ----------
+
+  app.get('/api/export', async (_request, reply) => {
+    const state = store.read();
+    const file = buildExportFile(state.family, 'server');
+    reply.header('Content-Disposition', `attachment; filename="chore-chart-export-${store.today()}.json"`);
+    return { ...file, stateVersion: state.stateVersion };
+  });
+
+  app.post<{ Body: { data: unknown } }>(
+    '/api/import/preview',
+    { bodyLimit: IMPORT_BODY_LIMIT, schema: { body: importPreviewSchema } },
+    async (request, reply) => {
+      const parsed = parseImport(request.body.data);
+      if (!parsed.ok) return reply.status(422).send({ error: parsed.error, message: parsed.message });
+      return {
+        summary: parsed.summary,
+        checksum: parsed.checksum,
+        server: { stateVersion: store.stateVersion(), empty: store.isEmpty() },
+      };
+    },
+  );
+
+  app.post<{ Body: { data: unknown; checksum: string; expectedStateVersion: number; replace: boolean } }>(
+    '/api/import/apply',
+    { bodyLimit: IMPORT_BODY_LIMIT, schema: { body: importApplySchema } },
+    async (request, reply) => {
+      const { data, checksum, expectedStateVersion, replace } = request.body;
+      const parsed = parseImport(data);
+      if (!parsed.ok) return reply.status(422).send({ error: parsed.error, message: parsed.message });
+      if (parsed.checksum !== checksum) {
+        return reply.status(400).send({ error: 'checksum_mismatch', message: 'The data differs from what was previewed. Please preview it again.' });
+      }
+      // Cheap pre-checks so a refused import does not create a backup.
+      if (store.stateVersion() !== expectedStateVersion) {
+        return reply.status(409).send({ error: 'changed_since_preview', message: 'The family data changed since the preview. Please check the preview again.' });
+      }
+      if (!store.isEmpty() && !replace) {
+        return reply.status(409).send({ error: 'server_not_empty', message: 'This server already has family data. Confirm that you want to replace it.' });
+      }
+      const backup = await createBackup(db, config.dataDir, 'pre-import');
+      const result = store.importDocument(parsed.doc, { expectedStateVersion, replace }, 'dev-unauthenticated');
+      if (!result.ok) return reply.status(result.status).send({ error: result.error, message: result.message, backup: path.basename(backup) });
+      return { stateVersion: result.stateVersion, backup: path.basename(backup) };
+    },
+  );
 
   return app;
 }

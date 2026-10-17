@@ -13,7 +13,7 @@ async function start(devUnauthenticatedApi: boolean) {
   const opened = await openData(tmp.dir, 'Europe/London');
   closeDb = () => opened.db.close();
   // light-my-request sends "Host: localhost:80" by default, so use port 80 here.
-  app = buildApp({ config: { devUnauthenticatedApi, bodyLimit: 64 * 1024, timeZone: 'Europe/London', port: 80 }, db: opened.db, store: opened.store });
+  app = buildApp({ config: { devUnauthenticatedApi, bodyLimit: 64 * 1024, timeZone: 'Europe/London', port: 80, dataDir: tmp.dir }, db: opened.db, store: opened.store });
   await app.ready();
   return opened;
 }
@@ -127,7 +127,7 @@ describe('development API (unauthenticated, loopback only)', () => {
         probe.close(() => resolve(p));
       });
     });
-    app = buildApp({ config: { devUnauthenticatedApi: true, bodyLimit: 64 * 1024, timeZone: 'Europe/London', port }, db: opened.db, store: opened.store });
+    app = buildApp({ config: { devUnauthenticatedApi: true, bodyLimit: 64 * 1024, timeZone: 'Europe/London', port, dataDir: tmp.dir }, db: opened.db, store: opened.store });
     await app.listen({ host: '127.0.0.1', port });
     const raw = (request: string) =>
       new Promise<string>((resolve, reject) => {

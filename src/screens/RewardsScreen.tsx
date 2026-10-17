@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { Child, DateKey, FamilyData, Reward } from '../types';
+import type { Child, FamilyData, Reward } from '../types';
 import { pointsBalance } from '../lib/points';
 import { recentRedemptions } from '../lib/rewards';
 import { parseDateKey } from '../lib/dates';
@@ -12,26 +12,30 @@ import { useToast } from '../state/toast';
 interface RewardsScreenProps {
   data: FamilyData;
   child: Child;
-  today: DateKey;
   actions: FamilyActions;
   onBack: () => void;
 }
 
 const shortDate = new Intl.DateTimeFormat(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
 
-export function RewardsScreen({ data, child, today, actions, onBack }: RewardsScreenProps) {
+export function RewardsScreen({ data, child, actions, onBack }: RewardsScreenProps) {
   const notify = useToast();
   const [pending, setPending] = useState<Reward | null>(null);
   const balance = pointsBalance(data, child.id);
   const history = recentRedemptions(data, child.id);
   const rewards = [...data.rewards].sort((a, b) => a.cost - b.cost);
 
-  const confirmRedeem = () => {
-    if (!pending) return;
-    const result = actions.redeemReward(child.id, pending.id, today);
+  const [redeeming, setRedeeming] = useState(false);
+
+  const confirmRedeem = async () => {
+    if (!pending || redeeming) return;
+    const reward = pending;
+    setRedeeming(true);
+    const result = await actions.redeemReward(child.id, reward.id);
+    setRedeeming(false);
     setPending(null);
     if (result.ok) {
-      notify(`${child.name} redeemed “${result.redemption.rewardName}”! ${result.redemption.cost} points used. Show a grown-up!`);
+      notify(`${child.name} redeemed “${reward.name}”! ${reward.cost} points used. Show a grown-up!`);
     } else {
       notify(result.error, 'error');
     }

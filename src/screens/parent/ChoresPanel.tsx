@@ -18,13 +18,19 @@ interface PanelProps {
   actions: FamilyActions;
 }
 
-type Editing = { mode: 'add' } | { mode: 'edit'; chore: Chore } | null;
+// `version`: the record version when the dialog opened, so a stale save is refused (409).
+type Editing = { mode: 'add' } | { mode: 'edit'; chore: Chore; version: number } | null;
 
 export function ChoresPanel({ data, actions }: PanelProps) {
   const notify = useToast();
   const [filter, setFilter] = useState<string>('all');
   const [editing, setEditing] = useState<Editing>(null);
   const [deleting, setDeleting] = useState<Chore | null>(null);
+  const [deleteVersion, setDeleteVersion] = useState(0);
+  const startDelete = (item: Chore) => {
+    setDeleteVersion(actions.versionOf(`chore:${item.id}`));
+    setDeleting(item);
+  };
 
   const children = data.children;
   const visibleChildren = filter === 'all' ? children : children.filter((c) => c.id === filter);
@@ -90,7 +96,7 @@ export function ChoresPanel({ data, actions }: PanelProps) {
                             <button
                               type="button"
                               className="button button-secondary"
-                              onClick={() => setEditing({ mode: 'edit', chore })}
+                              onClick={() => setEditing({ mode: 'edit', chore, version: actions.versionOf(`chore:${chore.id}`) })}
                               aria-label={`Edit ${chore.title} for ${child.name}`}
                             >
                               Edit
@@ -98,7 +104,7 @@ export function ChoresPanel({ data, actions }: PanelProps) {
                             <button
                               type="button"
                               className="button button-danger-outline"
-                              onClick={() => setDeleting(chore)}
+                              onClick={() => startDelete(chore)}
                               aria-label={`Delete ${chore.title} for ${child.name}`}
                             >
                               Delete
@@ -121,9 +127,13 @@ export function ChoresPanel({ data, actions }: PanelProps) {
           chore={editing.mode === 'edit' ? editing.chore : undefined}
           defaultChildId={filter !== 'all' ? filter : children[0]!.id}
           onCancel={() => setEditing(null)}
-          onSave={(value) => {
+          onSave={async (value) => {
             const id = editing.mode === 'edit' ? editing.chore.id : undefined;
-            actions.saveChore(value, id);
+            const result = await actions.saveChore(value, id, editing.mode === 'edit' ? editing.version : undefined);
+            if (!result.ok) {
+              notify(result.error, 'error');
+              return;
+            }
             setEditing(null);
             notify(id ? `Saved changes to “${value.title}”.` : `Added “${value.title}”.`);
           }}
@@ -136,8 +146,13 @@ export function ChoresPanel({ data, actions }: PanelProps) {
           tone="danger"
           confirmLabel="Yes, delete it"
           onCancel={() => setDeleting(null)}
-          onConfirm={() => {
-            actions.deleteChore(deleting.id);
+          onConfirm={async () => {
+            const result = await actions.deleteChore(deleting.id, deleteVersion);
+            if (!result.ok) {
+              notify(result.error, 'error');
+              setDeleting(null);
+              return;
+            }
             notify(`Deleted “${deleting.title}”.`, 'info');
             setDeleting(null);
           }}

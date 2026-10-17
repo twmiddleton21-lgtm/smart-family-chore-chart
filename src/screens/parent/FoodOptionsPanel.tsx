@@ -91,8 +91,8 @@ export function FoodOptionsPanel({ data, actions, today }: PanelProps) {
           tone="danger"
           confirmLabel="Yes, remove it"
           onCancel={() => setRemoving(null)}
-          onConfirm={() => {
-            const result = actions.removeFoodOption(removing.category, removing.option.id);
+          onConfirm={async () => {
+            const result = await actions.removeFoodOption(removing.category, removing.option.id);
             setRemoving(null);
             if (result.ok) notify(`Removed “${removing.option.name}” from ${FOOD_LABEL[removing.category].plural.toLowerCase()}.`, 'info');
             else notify(result.error, 'error');
@@ -124,9 +124,9 @@ function FoodCategoryCard({ category, data, today, actions, onRemove }: Category
   const options = sortedOptions(optionsFor(data, category));
   const inputId = `new-${category}`;
 
-  const add = (event: FormEvent) => {
+  const add = async (event: FormEvent) => {
     event.preventDefault();
-    const result = actions.addFoodOption(category, name);
+    const result = await actions.addFoodOption(category, name);
     if (!result.ok) {
       setError(result.error);
       return;
