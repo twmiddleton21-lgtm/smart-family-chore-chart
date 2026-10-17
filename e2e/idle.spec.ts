@@ -31,13 +31,13 @@ async function signedInContext(browser: Browser): Promise<{ ctx: BrowserContext;
   return { ctx, page: await ctx.newPage() };
 }
 
+/** A paired kiosk; the parent signs in on its screen (see openParentArea). */
 async function signedInKiosk(browser: Browser) {
   const admin = await signedInContext(browser);
   const { code } = await (await admin.ctx.request.post('/api/devices/pairing-codes', { data: { name: `Kiosk ${Date.now()}` } })).json();
   await admin.ctx.close();
   const kiosk = await browser.newContext({ baseURL: base });
   expect((await kiosk.request.post('/api/devices/pair', { data: { code } })).ok()).toBe(true);
-  expect((await kiosk.request.post('/api/auth/login', { data: { username: USERNAME, password: PASSWORD } })).ok()).toBe(true);
   return { ctx: kiosk, page: await kiosk.newPage() };
 }
 
@@ -51,11 +51,19 @@ async function dismissMealReminder(page: Page) {
 
 const parentHeading = (page: Page) => page.getByRole('heading', { name: /Parent area/ });
 
+/** Open the parent area, signing in on the screen if asked (always on a kiosk). */
 async function openParentArea(page: Page) {
   await page.clock.install();
   await page.goto('/');
   await dismissMealReminder(page);
   await page.getByRole('button', { name: /Parent area/ }).first().click();
+  const dialog = page.getByRole('dialog', { name: 'Parent sign in' });
+  await expect(parentHeading(page).or(dialog)).toBeVisible();
+  if (await dialog.isVisible()) {
+    await dialog.getByLabel('Username').fill(USERNAME);
+    await dialog.getByLabel('Password').fill(PASSWORD);
+    await dialog.getByRole('button', { name: 'Sign in' }).click();
+  }
   await expect(parentHeading(page)).toBeVisible();
 }
 
@@ -87,8 +95,8 @@ test.beforeAll(async ({ browser }) => {
 
 test('kiosk: 30 minutes without input locks the parent area and ends the session, with no status polling', async ({ browser }) => {
   const { ctx, page } = await signedInKiosk(browser);
-  const oldToken = await parentCookie(ctx);
   await openParentArea(page);
+  const oldToken = await parentCookie(ctx);
   const status = countRequests(page, '/api/auth/status');
   const logout = countRequests(page, '/api/auth/logout');
 

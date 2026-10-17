@@ -31,6 +31,12 @@ import { confirmSignOut, UNCONFIRMED_PREFIX, UNKNOWN_SESSION_REASON } from './si
 // the server reports a parent, the screen stays locked with the warning, and
 // signing in again (which replaces the session) or the server reporting no
 // parent settles it.
+//
+// On a paired (shared) device, a parent session found when the page loads
+// (after a reload or a browser restart) is never trusted: the screen locks
+// at once and that session is signed out like "Done – lock & exit", so the
+// parent area needs the password again. Otherwise children using the kiosk
+// would keep it alive, and "Parent area" would open without a password.
 
 /** How a sign-out ended (see Access.signOut). */
 export type SignOutResult = 'confirmed' | 'unconfirmed' | 'superseded';
@@ -131,6 +137,10 @@ export function useAccessLoader(client: AuthClient = authClient): AccessLoad {
   const generation = useRef(0);
   /** A sign-in is in progress on this tab: don't start sign-out retries meanwhile. */
   const signingIn = useRef(false);
+  /** Whether a status has been accepted since the page loaded. */
+  const loaded = useRef(false);
+  /** A kiosk page load found a parent signed in: sign that session out (see above). */
+  const signOutAfterLoad = useRef(false);
   /** Retry straight away once if the page was reloaded during an unconfirmed sign-out. */
   const retryOnLoad = useRef(lock === 'unconfirmed');
 
@@ -149,6 +159,15 @@ export function useAccessLoader(client: AuthClient = authClient): AccessLoad {
       statusRef.current = next;
       setStatus(next);
       setError(null);
+      const firstLoad = !loaded.current;
+      loaded.current = true;
+      if (firstLoad && next.device && next.parent && lockRef.current === 'none') {
+        // Lock in the same render as the status arrives, so the parent area never shows.
+        targetRef.current = next.sessionId ?? null;
+        signOutAfterLoad.current = true;
+        setLock('signing-out');
+        return;
+      }
       const current = lockRef.current;
       if (current !== 'unconfirmed' && current !== 'superseded') return;
       // The server says no parent session exists for this browser: the
@@ -243,6 +262,14 @@ export function useAccessLoader(client: AuthClient = authClient): AccessLoad {
       document.removeEventListener('visibilitychange', onVisible);
     };
   }, [refresh]);
+
+  // A kiosk page load found a parent signed in: end that session now.
+  useEffect(() => {
+    if (status && signOutAfterLoad.current) {
+      signOutAfterLoad.current = false;
+      void signOut();
+    }
+  }, [status, signOut]);
 
   // While a sign-out is unconfirmed, keep trying to end the session on the
   // server (only possible when we know which session that is).

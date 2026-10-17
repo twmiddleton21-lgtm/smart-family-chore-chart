@@ -31,14 +31,16 @@ async function signedInContext(browser: Browser): Promise<{ ctx: BrowserContext;
   return { ctx, page: await ctx.newPage() };
 }
 
-/** A paired kiosk with a parent signed in on it. */
+/**
+ * A paired kiosk. The parent signs in on its screen (openParentArea): a
+ * parent session found when a kiosk page loads is signed out at once.
+ */
 async function signedInKiosk(browser: Browser) {
   const admin = await signedInContext(browser);
   const { code } = await (await admin.ctx.request.post('/api/devices/pairing-codes', { data: { name: `Kiosk ${Date.now()}` } })).json();
   await admin.ctx.close();
   const kiosk = await browser.newContext({ baseURL: base });
   expect((await kiosk.request.post('/api/devices/pair', { data: { code } })).ok()).toBe(true);
-  expect((await kiosk.request.post('/api/auth/login', { data: { username: USERNAME, password: PASSWORD } })).ok()).toBe(true);
   return { ctx: kiosk, page: await kiosk.newPage() };
 }
 
@@ -50,11 +52,20 @@ async function dismissMealReminder(page: Page) {
   if (await later.isVisible({ timeout: 1500 }).catch(() => false)) await later.click();
 }
 
+/** Open the parent area, signing in on the screen if asked (always on a kiosk). */
 async function openParentArea(page: Page) {
   await page.goto('/');
   await dismissMealReminder(page);
   await page.getByRole('button', { name: /Parent area/ }).first().click();
-  await expect(page.getByRole('heading', { name: /Parent area/ })).toBeVisible();
+  const heading = page.getByRole('heading', { name: /Parent area/ });
+  const dialog = page.getByRole('dialog', { name: 'Parent sign in' });
+  await expect(heading.or(dialog)).toBeVisible();
+  if (await dialog.isVisible()) {
+    await dialog.getByLabel('Username').fill(USERNAME);
+    await dialog.getByLabel('Password').fill(PASSWORD);
+    await dialog.getByRole('button', { name: 'Sign in' }).click();
+  }
+  await expect(heading).toBeVisible();
 }
 
 /** Intercept logout; `mode` decides the injected outcome. Returns a call counter. */
@@ -140,8 +151,8 @@ test('failed sign-out (network error) keeps the app locked, says so, survives a 
 
 test('failed "Done – lock & exit" (HTTP 500) on a kiosk keeps the parent area locked; signing in again replaces the old session', async ({ browser }) => {
   const { ctx, page } = await signedInKiosk(browser);
-  const oldToken = await parentCookie(ctx);
   await openParentArea(page);
+  const oldToken = await parentCookie(ctx);
   await failLogout(page, 'http500');
   await page.getByRole('button', { name: 'Done – lock & exit' }).click();
 
@@ -411,5 +422,42 @@ test('with a server that doesn’t report session ids, sign-out sends nothing, c
   await expect(warning).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Connect this device' })).toBeVisible();
   expect(logout.calls).toBe(0);
+  await ctx.close();
+});
+
+// ---------- kiosk reload ----------
+
+test('reloading a kiosk signs out the parent session it finds: the parent area needs the password again', async ({ browser }) => {
+  const { ctx, page } = await signedInKiosk(browser);
+  await openParentArea(page); // signed in on the kiosk's screen
+  const token = await parentCookie(ctx);
+  expect((await serverStatus(ctx)).parent).not.toBeNull();
+
+  await page.reload(); // e.g. F5, or the kiosk browser restarting
+  await dismissMealReminder(page);
+  await expect(page.getByRole('heading', { name: /Parent area/ })).toHaveCount(0);
+  // The session was ended on the server, not just hidden; the pairing is kept.
+  await expect.poll(async () => (await serverStatus(ctx)).parent).toBeNull();
+  expect((await serverStatus(ctx)).device).not.toBeNull();
+  const replay = await browser.newContext({ baseURL: base });
+  await replay.addCookies([{ name: 'sfcc_parent', value: token!, url: base }]);
+  expect((await serverStatus(replay)).parent).toBeNull();
+  await replay.close();
+  await expect(page.getByRole('alert').filter({ hasText: UNCONFIRMED })).toHaveCount(0);
+
+  await page.getByRole('button', { name: /Parent area/ }).first().click();
+  await expect(page.getByRole('dialog', { name: 'Parent sign in' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /Parent area/ })).toHaveCount(0);
+  await ctx.close();
+});
+
+test('reloading on a parent’s own (unpaired) device keeps them signed in, as before', async ({ browser }) => {
+  const { ctx, page } = await signedInContext(browser);
+  await openParentArea(page);
+  await page.reload();
+  await dismissMealReminder(page);
+  await page.getByRole('button', { name: /Parent area/ }).first().click();
+  await expect(page.getByRole('heading', { name: /Parent area/ })).toBeVisible(); // no password asked
+  expect((await serverStatus(ctx)).parent).not.toBeNull();
   await ctx.close();
 });
