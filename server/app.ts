@@ -364,7 +364,10 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       async (request, reply) => {
         const r = await auth.removeParent(ctxOf(request).parent!.id, request.params.id, request.body.password);
         if (!r.ok) return sendAuthError(reply, r);
-        if (r.removedSelf) clearSessionCookie(request, reply, PARENT_COOKIE);
+        // Removing yourself ends your sessions (they go with the account). No
+        // Set-Cookie, as with a targeted sign-out: this answer could arrive
+        // after another parent signed in on this browser, and clearing the
+        // cookie then would sign them out. The dead token is refused.
         return { ok: true, removedSelf: r.removedSelf };
       },
     );

@@ -554,14 +554,36 @@ describe('parent accounts (equal parents)', () => {
     expect(auth.hasParents()).toBe(true);
   });
 
-  it('a parent can remove themselves when another remains; their cookie is cleared', async () => {
+  it('a parent can remove themselves when another remains; their session ends (no Set-Cookie)', async () => {
     await start();
     const sam = await setUp();
     await post(sam, '/api/parents', { username: 'alex', displayName: 'Alex', password: PASSWORD_2 });
     const samId = auth.listParents().find((p) => p.username === 'sam')!.id;
+    const token = sam[PARENT_COOKIE]!;
     const r = await post(sam, `/api/parents/${samId}/remove`, { password: PASSWORD });
     expect(r.json()).toEqual({ ok: true, removedSelf: true });
-    expect(sam[PARENT_COOKIE]).toBeUndefined();
+    // Like a targeted sign-out: the session is gone on the server and the
+    // answer doesn't touch the cookie (it could arrive after another sign-in).
+    expect(r.headers['set-cookie']).toBeUndefined();
+    expect(sam[PARENT_COOKIE]).toBe(token); // a dead token...
+    expect((await get(sam, '/api/parents')).statusCode).toBe(401); // ...refused everywhere
+    expect((await get(sam, '/api/auth/status')).json()).toMatchObject({ parent: null, sessionId: null });
+  });
+
+  it('removing yourself, with the answer arriving after another parent signed in on this browser, leaves that sign-in alone', async () => {
+    await start();
+    const browser = await setUp(); // sam, in tab A
+    await post(browser, '/api/parents', { username: 'alex', displayName: 'Alex', password: PASSWORD_2 });
+    const samId = auth.listParents().find((p) => p.username === 'sam')!.id;
+    // Tab A removes Sam; the server handles it now, the answer arrives later.
+    const late = await app.inject({ method: 'POST', url: `/api/parents/${samId}/remove`, payload: { password: PASSWORD }, cookies: { ...browser } });
+    expect(late.json()).toEqual({ ok: true, removedSelf: true });
+    // Tab B signs in as Alex.
+    await post(browser, '/api/auth/login', { username: 'alex', password: PASSWORD_2 });
+    const alexToken = browser[PARENT_COOKIE]!;
+    absorb(browser, late); // tab A's old answer arrives
+    expect(browser[PARENT_COOKIE]).toBe(alexToken);
+    expect((await get(browser, '/api/auth/status')).json().parent).toMatchObject({ username: 'alex' });
   });
 
   it('changing your own password needs the current one and signs out your other sessions only', async () => {
