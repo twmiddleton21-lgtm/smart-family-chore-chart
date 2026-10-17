@@ -5,7 +5,9 @@
 #     docker compose -f compose.server.yaml up -d
 #
 # Deliberately:
-#   - the image tag must be given (SFCC_SERVER_IMAGE): no "latest";
+#   - the image tag must be given (SFCC_SERVER_IMAGE): no "latest", and it is
+#     never pulled or built here (pull_policy: never; build it with
+#     docker build -f Dockerfile.server, or docker load a saved archive);
 #   - the port is published on this computer only (127.0.0.1) by default;
 #   - one named volume holds the database and its backups (/data);
 #   - no reverse proxy, tunnel or other services.
@@ -15,9 +17,7 @@
 services:
   app:
     image: ${SFCC_SERVER_IMAGE:?Set SFCC_SERVER_IMAGE to the local image tag to run (e.g. smart-family-chore-chart-server:rc-<commit>)}
-    build:
-      context: .
-      dockerfile: Dockerfile.server
+    pull_policy: never
     restart: unless-stopped
     ports:
       # Host side: this computer only, on SFCC_HOST_PORT (default 3000).

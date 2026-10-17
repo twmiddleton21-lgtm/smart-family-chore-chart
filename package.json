@@ -21,7 +21,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "server:cli": "tsx server/cli.ts"
+    "server:cli": "tsx server/cli.ts",
+    "verify:docker": "node scripts/verify-docker-rc.mjs"
   },
   "dependencies": {
     "@fastify/cookie": "11.1.2",
