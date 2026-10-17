@@ -151,6 +151,7 @@ npm run server:cli -- restore <file> --yes # STOP THE SERVER FIRST
 - Backups use SQLite's online backup API, so they include changes still in the `-wal` file. They're converted to a single self-contained file and verified with an integrity check before being reported as written.
 - Backups contain the account tables too (password **hashes** and session **hashes**, never plaintext). Keep them as private as the database.
 - Restore verifies the backup first, moves the current database (with its `-wal` and `-shm`) to `backups/replaced-<time>.db`, and never deletes it.
+- **A restore signs everyone out.** Before the restored copy goes live, all sessions, paired devices and pairing codes in it are removed, so a backup can't bring back a session that was signed out, or a device that was unpaired, after it was taken. Afterwards parents sign in again and kiosks are paired again with new codes. Parent accounts are kept, but each password is whatever it was when the backup was taken: if a password was changed since (for example after it leaked), use `reset-password` straight after restoring. The copy is prepared before anything is moved, so a failure leaves the current database untouched.
 - **Never copy a live `chorechart.db` by hand.** Use the backup command.
 - Scheduled daily backups aren't implemented yet (planned for the Compose stage).
 

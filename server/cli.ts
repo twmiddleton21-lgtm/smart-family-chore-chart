@@ -67,7 +67,12 @@ async function main(): Promise<number> {
         return 1;
       }
       const result = restoreBackup(args[0], dbFile);
-      console.log(`Restored ${args[0]} -> ${dbFile}` + (result.movedAside ? `\nPrevious database kept at ${result.movedAside}` : ''));
+      console.log(
+        `Restored ${args[0]} -> ${dbFile}` +
+          (result.movedAside ? `\nPrevious database kept at ${result.movedAside}` : '') +
+          '\nEveryone was signed out: parents sign in again and devices are paired again with new codes.' +
+          '\nPasswords are as they were when the backup was taken (use reset-password if one was changed since).',
+      );
       return 0;
     }
     case 'list-parents':

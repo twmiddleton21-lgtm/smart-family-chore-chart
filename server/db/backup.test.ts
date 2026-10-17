@@ -1,11 +1,13 @@
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { databasePath, openData } from '../open';
 import { tempDir } from '../testUtils';
 import { createBackup, listBackups, pruneBackups, restoreBackup, verifyBackup } from './backup';
 import { openDatabase } from './database';
-import { LATEST_SCHEMA_VERSION } from './migrations';
+import { LATEST_SCHEMA_VERSION, MIGRATIONS, runMigrations } from './migrations';
+import { AuthService } from '../auth/service';
+import { FamilyStore } from '../family/store';
 
 let tmp: ReturnType<typeof tempDir>;
 beforeEach(() => {
@@ -112,6 +114,90 @@ describe('backups', () => {
       expect(JSON.parse(aside.get<{ data: string }>('SELECT data FROM family_state')!.data).children).toHaveLength(2);
     } finally {
       aside.close();
+    }
+  });
+
+  it('a restore signs everyone out: no session, paired device or pairing code from the backup comes back', async () => {
+    let backupFile: string;
+    let parentToken: string;
+    let deviceToken: string;
+    let revokedDeviceToken: string;
+    {
+      const { db, store } = await openData(tmp.dir, 'UTC');
+      const auth = new AuthService(db, { setupCode: 'RESTORETEST01' });
+      auth.prepareSetup();
+      const setup = await auth.completeSetup({ setupCode: 'RESTORETEST01', username: 'sam', displayName: 'Sam', password: 'correct horse battery' }, '127.0.0.1');
+      if (!setup.ok) throw new Error(setup.message);
+      parentToken = setup.token;
+      const pair = (name: string) => {
+        const c = auth.createPairingCode(setup.parent.id, name);
+        if (!c.ok) throw new Error(c.message);
+        const d = auth.pairDevice(c.code, '127.0.0.1');
+        if (!d.ok) throw new Error(d.message);
+        return d;
+      };
+      deviceToken = pair('Kitchen tablet').token;
+      const revoked = pair('Old tablet');
+      revokedDeviceToken = revoked.token;
+      if (!auth.createPairingCode(setup.parent.id, 'Not yet paired').ok) throw new Error('code');
+      addChild(store, 'Alex');
+      backupFile = await createBackup(db, tmp.dir, 'manual');
+      // After the backup: the parent signs out and a device is unpaired.
+      auth.logout(parentToken);
+      auth.revokeDevice(revoked.device.id);
+      db.close(); // server stopped
+    }
+    restoreBackup(backupFile, databasePath(tmp.dir));
+
+    const { db, store } = await openData(tmp.dir, 'UTC');
+    try {
+      const count = (table: string) => Number(db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM ${table}`)!.n);
+      expect([count('sessions'), count('devices'), count('pairing_codes')]).toEqual([0, 0, 0]);
+      expect(count('parents')).toBe(1); // accounts are kept
+      expect(store.read().family.children.map((c) => c.name)).toEqual(['Alex']); // and the family data
+      const auth = new AuthService(db);
+      for (const [parent, device] of [[parentToken, deviceToken], [undefined, revokedDeviceToken]] as const) {
+        expect(auth.authenticate(parent, device)).toEqual({ parent: null, device: null, parentSessionHash: null });
+      }
+      expect((await auth.login('sam', 'correct horse battery', false, '127.0.0.1')).ok).toBe(true); // sign in again
+    } finally {
+      db.close();
+    }
+  });
+
+  it('a backup from before parent accounts existed restores as before', async () => {
+    const dbFile = databasePath(tmp.dir);
+    let backupFile: string;
+    {
+      const db = openDatabase(dbFile);
+      runMigrations(db, MIGRATIONS.slice(0, 1));
+      new FamilyStore(db, { timeZone: 'UTC' }).initialize();
+      backupFile = await createBackup(db, tmp.dir, 'manual');
+      db.close();
+    }
+    restoreBackup(backupFile, dbFile);
+    const { db, migrated } = await openData(tmp.dir, 'UTC');
+    try {
+      expect(migrated).toEqual([2]);
+      expect(new AuthService(db).isSetupRequired()).toBe(true);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('if the restored copy can’t be prepared, the current database is left untouched', async () => {
+    const { db, store } = await openData(tmp.dir, 'UTC');
+    addChild(store, 'Alex');
+    const backupFile = await createBackup(db, tmp.dir, 'manual');
+    db.close();
+    // Something in the way of the prepared copy (a directory with its name).
+    mkdirSync(`${databasePath(tmp.dir)}.restoring`);
+    expect(() => restoreBackup(backupFile, databasePath(tmp.dir))).toThrow();
+    const again = await openData(tmp.dir, 'UTC');
+    try {
+      expect(again.store.read().family.children).toHaveLength(1);
+    } finally {
+      again.db.close();
     }
   });
 

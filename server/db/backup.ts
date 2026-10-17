@@ -88,15 +88,51 @@ export function pruneBackups(dataDir: string, keep: number, label?: string): str
 }
 
 /**
- * OFFLINE restore: the server must be stopped. Verifies the backup, moves
- * the current database (and any -wal/-shm files) aside to
- * <dataDir>/backups/replaced-<timestamp>-*.db, then copies the backup into
- * place. Returns the path of the moved-aside database (if there was one).
+ * Remove every sign-in from a database: sessions, paired devices and pairing
+ * codes (parent accounts are kept). Used on a restored copy so a backup can't
+ * bring back sessions that were signed out, or devices that were unpaired,
+ * after it was taken. Databases from before accounts existed are left as is.
+ */
+export function removeSignIns(db: SqlDatabase): { sessions: number; devices: number; pairingCodes: number } {
+  const hasAuth = db.get("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'sessions'");
+  if (!hasAuth) return { sessions: 0, devices: 0, pairingCodes: 0 };
+  return db.transaction(() => ({
+    sessions: db.run('DELETE FROM sessions').changes,
+    pairingCodes: db.run('DELETE FROM pairing_codes').changes,
+    devices: db.run('DELETE FROM devices').changes,
+  }));
+}
+
+/**
+ * OFFLINE restore: the server must be stopped. Verifies the backup, prepares
+ * a copy of it with every sign-in removed (see removeSignIns: everyone signs
+ * in again and devices are paired again), then moves the current database
+ * (and any -wal/-shm files) aside to <dataDir>/backups/replaced-<timestamp>-*.db
+ * and puts the prepared copy in place. Returns the path of the moved-aside
+ * database (if there was one).
  */
 export function restoreBackup(backupFile: string, dbFile: string, now = new Date()): { movedAside: string | null } {
   const check = verifyBackup(backupFile);
   if (!check.ok) throw new Error(`Refusing to restore: ${check.error}`);
   const dataDir = path.dirname(dbFile);
+  // Prepare the copy first, so a failure leaves the current database untouched.
+  const prepared = `${dbFile}.restoring`;
+  for (const f of [prepared, `${prepared}-wal`, `${prepared}-shm`]) if (existsSync(f)) unlinkSync(f);
+  copyFileSync(backupFile, prepared);
+  try {
+    const db = openDatabase(prepared);
+    try {
+      removeSignIns(db);
+    } finally {
+      db.close();
+    }
+    toSingleFile(prepared);
+    const preparedCheck = verifyBackup(prepared);
+    if (!preparedCheck.ok) throw new Error(`Refusing to restore: ${preparedCheck.error}`);
+  } catch (error) {
+    for (const f of [prepared, `${prepared}-wal`, `${prepared}-shm`]) if (existsSync(f)) unlinkSync(f);
+    throw error;
+  }
   const aside = path.join(backupDir(dataDir), `replaced-${stamp(now)}`);
   let movedAside: string | null = null;
   if (existsSync(dbFile) && statSync(dbFile).size > 0) {
@@ -110,6 +146,6 @@ export function restoreBackup(backupFile: string, dbFile: string, now = new Date
       else unlinkSync(dbFile + suffix);
     }
   }
-  copyFileSync(backupFile, dbFile);
+  renameSync(prepared, dbFile);
   return { movedAside };
 }
