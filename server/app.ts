@@ -8,11 +8,14 @@ import type { FamilyStore } from './family/store';
 // HTTP API. Stage A has NO authentication yet, so family-data routes exist
 // only in the explicit development mode (config.devUnauthenticatedApi),
 // which config.ts allows only outside production and only on a loopback
-// address, and which additionally rejects any non-loopback client here.
+// address. In that mode every request must also come from a loopback
+// client, carry a loopback Host header for the configured port (defeats DNS
+// rebinding: a malicious site resolving its own name to 127.0.0.1) and, if
+// it has an Origin header, a loopback Origin (blocks cross-site browsers).
 // Otherwise every /api route answers 503 and no family data is reachable.
 
 export interface AppDeps {
-  config: Pick<ServerConfig, 'devUnauthenticatedApi' | 'bodyLimit' | 'timeZone'>;
+  config: Pick<ServerConfig, 'devUnauthenticatedApi' | 'bodyLimit' | 'timeZone' | 'port'>;
   db: SqlDatabase;
   store: FamilyStore;
   logger?: boolean;
@@ -22,6 +25,18 @@ const LOOPBACK_ADDRESSES = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 
 function isLoopbackClient(request: FastifyRequest): boolean {
   return LOOPBACK_ADDRESSES.has(request.socket.remoteAddress ?? '');
+}
+
+/** Host headers accepted in development mode: loopback names on our port only. */
+export function loopbackHosts(port: number): Set<string> {
+  return new Set([`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`]);
+}
+
+const LOOPBACK_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d{1,5})?$/;
+
+/** No Origin (non-browser client) is fine; otherwise it must be a loopback origin. */
+export function isAllowedOrigin(origin: string | undefined): boolean {
+  return origin === undefined || LOOPBACK_ORIGIN.test(origin.toLowerCase());
 }
 
 const commandBodySchema = {
@@ -106,11 +121,14 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     return app;
   }
 
-  // DEVELOPMENT ONLY: unauthenticated, loopback clients only.
+  // DEVELOPMENT ONLY: unauthenticated, loopback clients only. Applied to
+  // EVERY request (not a URL-prefix check, so encoded paths cannot bypass it).
+  const allowedHosts = loopbackHosts(config.port);
   app.addHook('onRequest', async (request, reply) => {
-    if (!request.url.startsWith('/api/')) return;
     reply.header('X-SFCC-Dev-Mode', 'unauthenticated-loopback-only');
-    if (!isLoopbackClient(request)) {
+    const host = (request.headers.host ?? '').toLowerCase();
+    const origin = request.headers.origin;
+    if (!isLoopbackClient(request) || !allowedHosts.has(host) || !isAllowedOrigin(origin)) {
       return reply.status(403).send({ error: 'forbidden', message: 'Development API is only available from this computer.' });
     }
   });

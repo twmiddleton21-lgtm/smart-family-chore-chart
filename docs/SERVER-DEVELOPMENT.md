@@ -17,7 +17,7 @@
 | Mode | How to enable | Family data API |
 |---|---|---|
 | **Default** | nothing | **Disabled.** `/api/*` returns 503. Only `/healthz` and `/readyz` work, and they contain no family data. |
-| **Development (unauthenticated)** | `--dev-unauthenticated-api` flag or `SFCC_DEV_UNAUTHENTICATED_API=1` | Enabled **without authentication**, only for **loopback clients**. The server **refuses to start** in this mode if `SFCC_HOST` isn't loopback or if `NODE_ENV=production`. Responses carry `X-SFCC-Dev-Mode: unauthenticated-loopback-only`. |
+| **Development (unauthenticated)** | `--dev-unauthenticated-api` flag or `SFCC_DEV_UNAUTHENTICATED_API=1` | Enabled **without authentication**. The server **refuses to start** in this mode if `SFCC_HOST` isn't loopback or if `NODE_ENV=production`. **Every** request must (1) come from a loopback client, (2) carry a loopback `Host` header for the configured port (`127.0.0.1:<port>`, `localhost:<port>` or `[::1]:<port>`), which blocks DNS-rebinding attacks from malicious websites, and (3) have no `Origin` or a loopback `Origin`. Otherwise it gets 403. Responses carry `X-SFCC-Dev-Mode: unauthenticated-loopback-only`. |
 
 ## Running it locally
 

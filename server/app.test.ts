@@ -1,3 +1,4 @@
+import net from 'node:net';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from './app';
@@ -11,7 +12,8 @@ let closeDb: () => void;
 async function start(devUnauthenticatedApi: boolean) {
   const opened = await openData(tmp.dir, 'Europe/London');
   closeDb = () => opened.db.close();
-  app = buildApp({ config: { devUnauthenticatedApi, bodyLimit: 64 * 1024, timeZone: 'Europe/London' }, db: opened.db, store: opened.store });
+  // light-my-request sends "Host: localhost:80" by default, so use port 80 here.
+  app = buildApp({ config: { devUnauthenticatedApi, bodyLimit: 64 * 1024, timeZone: 'Europe/London', port: 80 }, db: opened.db, store: opened.store });
   await app.ready();
   return opened;
 }
@@ -96,6 +98,65 @@ describe('development API (unauthenticated, loopback only)', () => {
     const r = await app.inject({ method: 'GET', url: '/api/state', remoteAddress: '192.168.1.50' });
     expect(r.statusCode).toBe(403);
     expect(r.body).not.toContain('family');
+  });
+
+  it.each([
+    ['a rebinding Host (attacker domain resolved to 127.0.0.1)', { host: 'evil.example:80' }],
+    ['a loopback Host on another port', { host: 'localhost:3000' }],
+    ['a cross-site Origin', { origin: 'http://evil.example' }],
+    ['a null Origin (sandboxed page)', { origin: 'null' }],
+    ['a look-alike Origin', { origin: 'http://localhost.evil.example' }],
+  ])('blocks %s with 403 and no family data', async (_label, headers) => {
+    await start(true);
+    for (const url of ['/api/state', '/%61pi/state', '/healthz']) {
+      const r = await app.inject({ method: 'GET', url, headers });
+      expect(r.statusCode).toBe(403);
+      expect(r.body).not.toContain('children');
+    }
+    const cmd = await app.inject({ method: 'POST', url: '/api/commands', headers, payload: { type: 'loadDemoFamily', payload: {} } });
+    expect(cmd.statusCode).toBe(403);
+  });
+
+  it('blocks requests with no Host header over a real socket (inject always adds one)', async () => {
+    const opened = await openData(tmp.dir, 'Europe/London');
+    closeDb = () => opened.db.close();
+    // Find a free loopback port, then configure the app for exactly that port.
+    const port = await new Promise<number>((resolve) => {
+      const probe = net.createServer().listen(0, '127.0.0.1', () => {
+        const p = (probe.address() as net.AddressInfo).port;
+        probe.close(() => resolve(p));
+      });
+    });
+    app = buildApp({ config: { devUnauthenticatedApi: true, bodyLimit: 64 * 1024, timeZone: 'Europe/London', port }, db: opened.db, store: opened.store });
+    await app.listen({ host: '127.0.0.1', port });
+    const raw = (request: string) =>
+      new Promise<string>((resolve, reject) => {
+        const socket = net.connect(port, '127.0.0.1', () => socket.end(request));
+        let data = '';
+        socket.on('data', (d) => (data += d));
+        socket.on('end', () => resolve(data));
+        socket.on('error', reject);
+      });
+    // HTTP/1.1 without Host: rejected by Node before reaching the app.
+    const http11 = await raw('GET /api/state HTTP/1.1\r\nConnection: close\r\n\r\n');
+    expect(http11).toMatch(/^HTTP\/1\.1 400/);
+    // HTTP/1.0 without Host is legal HTTP, so it reaches our guard.
+    const http10 = await raw('GET /api/state HTTP/1.0\r\n\r\n');
+    expect(http10).toMatch(/^HTTP\/1\.[01] 403/);
+    expect(http10).not.toContain('children');
+    // Sanity check: the same socket path with a correct Host works.
+    const okResp = await raw(`GET /api/state HTTP/1.0\r\nHost: 127.0.0.1:${port}\r\n\r\n`);
+    expect(okResp).toMatch(/^HTTP\/1\.[01] 200/);
+  });
+
+  it.each([
+    ['127.0.0.1 Host', { host: '127.0.0.1:80' }],
+    ['[::1] Host', { host: '[::1]:80' }],
+    ['localhost Host with a loopback Origin from the Vite dev server', { host: 'localhost:80', origin: 'http://localhost:4174' }],
+  ])('allows %s', async (_label, headers) => {
+    await start(true);
+    const r = await app.inject({ method: 'GET', url: '/api/state', headers });
+    expect(r.statusCode).toBe(200);
   });
 
   it('applies a valid command and reports the new version and changed records', async () => {
