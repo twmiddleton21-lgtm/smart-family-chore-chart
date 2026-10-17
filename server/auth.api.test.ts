@@ -316,6 +316,23 @@ describe('session expiry', () => {
     expect((await get(jar, '/api/state')).statusCode).toBe(401);
   });
 
+  // Why the app must not poll while idle: every authenticated request, a
+  // status read included, extends the idle timeout. A status check once a
+  // minute keeps an unattended session alive until the 12-hour maximum.
+  it('status reads extend the idle timeout, but never past the 12-hour maximum', async () => {
+    await start();
+    const jar = await setUp();
+    const end = clock + SESSION_POLICY.parent.absoluteMs;
+    clock += 5 * MINUTE;
+    expect((await get(jar, '/api/auth/status')).json().parent).not.toBeNull();
+    for (clock += 26 * MINUTE; clock + MINUTE < end; clock += MINUTE) {
+      expect((await get(jar, '/api/auth/status')).json().parent, new Date(clock).toISOString()).not.toBeNull();
+    }
+    clock = end;
+    expect((await get(jar, '/api/auth/status')).json().parent).toBeNull();
+    expect((await get(jar, '/api/state')).statusCode).toBe(401);
+  });
+
   it('"keep me signed in" lasts 30 days, then ends', async () => {
     await start();
     await setUp();

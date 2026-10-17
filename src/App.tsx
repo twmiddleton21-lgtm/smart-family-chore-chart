@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { DATA_SOURCE } from './config';
 import { AccessProvider, useAccess, useAccessLoader } from './state/access';
+import { localStorageActivity, PARENT_IDLE_MS, watchIdle } from './state/idle';
 import { useToast } from './state/toast';
 import { SetupScreen } from './screens/auth/SetupScreen';
 import { LockedScreen } from './screens/auth/LockedScreen';
@@ -140,24 +141,26 @@ function AppContent({ store, data }: { store: FamilyStore; data: FamilyData }) {
     }
   }, [inParentArea, signIn, parentSignedIn, signOutUnderway, notify]);
 
-  // After 30 minutes without any input in the parent area, ask the server
-  // again: if the session has expired there, the effect above locks the area.
+  // After 30 minutes without input in the parent area, lock it and end the
+  // parent session, exactly like "Sign out" (see state/idle.ts). The idle
+  // check itself never contacts the server, because authenticated requests
+  // extend the server's idle timeout. The existing focus and data refreshes
+  // still happen as before, but don't count as user activity.
+  const lockAfterIdle = useRef<() => void>(() => undefined);
+  lockAfterIdle.current = () => {
+    goHome();
+    void endParentSession('Parent area locked and signed out after 30 minutes without activity.');
+  };
   useEffect(() => {
-    if (!inParentArea || !signIn) return;
-    let last = Date.now();
-    const touch = () => {
-      last = Date.now();
-    };
-    const events = ['pointerdown', 'keydown', 'wheel', 'touchstart'] as const;
-    for (const e of events) window.addEventListener(e, touch, { passive: true });
-    const timer = window.setInterval(() => {
-      if (Date.now() - last > 30 * 60 * 1000) void access.refresh();
-    }, 60 * 1000);
-    return () => {
-      for (const e of events) window.removeEventListener(e, touch);
-      window.clearInterval(timer);
-    };
-  }, [inParentArea, signIn, access]);
+    if (!inParentArea || !parentSignedIn) return;
+    return watchIdle({
+      idleMs: PARENT_IDLE_MS,
+      onIdle: () => lockAfterIdle.current(),
+      target: window,
+      visibility: document,
+      shared: localStorageActivity,
+    });
+  }, [inParentArea, parentSignedIn]);
 
   return (
     <div className="app">
