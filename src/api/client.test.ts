@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ApiError, createApiClient, toFamilyData } from './client';
+import { ApiError, AUTH_CHANGED_EVENT, createApiClient, toFamilyData } from './client';
 
 type Call = { url: string; init: RequestInit };
 
@@ -91,5 +91,40 @@ describe('API client', () => {
       foodOptions: { mains: [], puddings: [] },
     });
     expect(fam.settings.parentPin).toBe('');
+  });
+});
+
+describe('API client: sign-in answers', () => {
+  it('maps 401, parent-required 403 and 429 to their own kinds, keeping the server wording', async () => {
+    const client = createApiClient(fakeFetch(401, { error: 'unauthenticated', message: 'Please sign in or pair this device.' }));
+    expect(await errorOf(client.getState())).toMatchObject({ kind: 'unauthenticated', status: 401, message: 'Please sign in or pair this device.' });
+    const device = createApiClient(fakeFetch(403, { error: 'parent_required', message: 'A parent needs to sign in for this.' }));
+    expect((await errorOf(device.exportData())).kind).toBe('parent_required');
+    const csrf = createApiClient(fakeFetch(403, { error: 'cross_site_request', message: 'nope' }));
+    expect((await errorOf(csrf.getState())).kind).toBe('forbidden');
+    const limited = createApiClient(fakeFetch(429, { error: 'too_many_attempts', message: 'Too many attempts. Please wait and try again.' }));
+    expect(await errorOf(limited.getState())).toMatchObject({ kind: 'rate_limited', message: 'Too many attempts. Please wait and try again.' });
+  });
+
+  it('announces a changed sign-in state on 401 unauthenticated and 403 parent_required only', async () => {
+    const seen: string[] = [];
+    const target = new EventTarget();
+    const g = globalThis as { window?: unknown };
+    const had = 'window' in g;
+    const previous = g.window;
+    g.window = target;
+    target.addEventListener(AUTH_CHANGED_EVENT, () => seen.push('changed'));
+    try {
+      await errorOf(createApiClient(fakeFetch(401, { error: 'unauthenticated' })).getState());
+      await errorOf(createApiClient(fakeFetch(403, { error: 'parent_required' })).getState());
+      expect(seen).toEqual(['changed', 'changed']);
+      // A wrong password is not a session change.
+      await errorOf(createApiClient(fakeFetch(401, { error: 'invalid_credentials' })).getState());
+      await errorOf(createApiClient(fakeFetch(409, { error: 'conflict' })).getState());
+      expect(seen).toHaveLength(2);
+    } finally {
+      if (had) g.window = previous;
+      else delete g.window;
+    }
   });
 });

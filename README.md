@@ -62,7 +62,7 @@ To open the dev server from other devices on your network, run `npm run dev -- -
 | `npm run test:watch` | Tests in watch mode. |
 | `npm run typecheck` | TypeScript check (frontend and server). |
 
-**Server (in development):** a backend with a SQLite database is being built for shared multi-device data. The default build doesn't use it. A separate development build (`npm run dev:server` plus `npm run dev:api`) does, but the server has **no authentication yet** and its data API only works in a loopback-only development mode. Export works in both builds. See [`docs/SERVER-DEVELOPMENT.md`](docs/SERVER-DEVELOPMENT.md).
+**Server (in development):** a backend with a SQLite database is being built for shared multi-device data. The default build doesn't use it. A separate server build (`npm run dev:server:auth` plus `npm run dev:api`) does. The server has parent accounts, device pairing and server-side authorisation (a one-time setup code is printed on first start), but it isn't packaged for installation yet, so it's **not for real family data**. A loopback-only development mode without sign-in also exists (`npm run dev:server`). Export works in both builds. See [`docs/SERVER-DEVELOPMENT.md`](docs/SERVER-DEVELOPMENT.md).
 
 To change the dev port, edit `PORT` in `vite.config.ts` and the `--port` values in `package.json`.
 

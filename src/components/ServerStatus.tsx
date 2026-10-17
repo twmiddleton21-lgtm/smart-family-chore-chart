@@ -1,4 +1,35 @@
+import { useAccess, type AccessLoad } from '../state/access';
 import type { FamilyStore } from '../state/storeTypes';
+
+/** Server builds, before the sign-in state is known. */
+export function AccessStatusScreen({ load }: { load: Exclude<AccessLoad, { state: 'ready' }> }) {
+  if (load.state === 'loading') {
+    return (
+      <main className="screen status-screen" aria-busy="true">
+        <div className="status-card">
+          <p className="status-emoji" aria-hidden="true">
+            ⏳
+          </p>
+          <h1 className="screen-title">Connecting to your family server…</h1>
+        </div>
+      </main>
+    );
+  }
+  return (
+    <main className="screen status-screen">
+      <div className="status-card" role="alert">
+        <p className="status-emoji" aria-hidden="true">
+          📡
+        </p>
+        <h1 className="screen-title">Can’t reach the family server</h1>
+        <p className="status-message">{load.message}</p>
+        <button type="button" className="button button-primary" onClick={load.retry}>
+          Try again
+        </button>
+      </div>
+    </main>
+  );
+}
 
 /** Full-page state shown before the first successful load from the server. */
 export function ServerStatusScreen({ store }: { store: FamilyStore }) {
@@ -24,10 +55,7 @@ export function ServerStatusScreen({ store }: { store: FamilyStore }) {
         <h1 className="screen-title">{disabled ? 'Family data is switched off on this server' : 'Can’t reach the family server'}</h1>
         <p className="status-message">{store.error?.message ?? 'Something went wrong.'}</p>
         {disabled ? (
-          <p className="muted">
-            This development build needs the server started in its local development mode. Parent sign-in, which will allow
-            normal use, comes in a later version.
-          </p>
+          <p className="muted">Ask whoever runs the family server to check its settings.</p>
         ) : (
           <p className="muted">Your data is safe on the server. Nothing has been changed.</p>
         )}
@@ -39,11 +67,19 @@ export function ServerStatusScreen({ store }: { store: FamilyStore }) {
   );
 }
 
-/** Persistent strip in the server development build: not for real families yet. */
+/** Persistent strip in server builds: not released for real families yet. */
 export function DevBuildBanner() {
+  const access = useAccess();
+  if (access?.status.devMode) {
+    return (
+      <div className="banner banner-dev" role="note">
+        🧪 Development mode: shared family server with <strong>no sign-in</strong>. Not for real family data.
+      </div>
+    );
+  }
   return (
     <div className="banner banner-dev" role="note">
-      🧪 Development build: shared family server with <strong>no sign-in yet</strong>. Not for real family data.
+      🧪 Pre-release build of the shared family server. Not ready for real family data yet.
     </div>
   );
 }

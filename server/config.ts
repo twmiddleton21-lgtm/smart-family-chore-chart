@@ -19,6 +19,10 @@ export interface ServerConfig {
   production: boolean;
   /** Maximum JSON request body size in bytes. */
   bodyLimit: number;
+  /** Secure flag on session cookies: "auto" (when the request is HTTPS), "always" or "never". */
+  cookieSecure: 'auto' | 'always' | 'never';
+  /** Optional fixed first-run setup code (otherwise a random one is printed at start-up). */
+  setupCode?: string;
 }
 
 export class ConfigError extends Error {}
@@ -46,6 +50,21 @@ function parsePort(raw: string | undefined, fallback: number): number {
   return port;
 }
 
+function parseCookieSecure(raw: string | undefined): ServerConfig['cookieSecure'] {
+  if (raw === undefined || raw === '' || raw === 'auto') return 'auto';
+  if (raw === 'always' || raw === 'never') return raw;
+  throw new ConfigError(`SFCC_COOKIE_SECURE must be auto, always or never, got "${raw}"`);
+}
+
+/** A preset setup code must be long and random enough (at least 12 letters/digits). */
+function parseSetupCode(raw: string): string {
+  const normalised = raw.toUpperCase().replace(/[\s-]/g, '');
+  if (!/^[A-Z0-9]{12,64}$/.test(normalised)) {
+    throw new ConfigError('SFCC_SETUP_CODE must be 12-64 letters or digits (dashes and spaces are ignored).');
+  }
+  return raw;
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()): ServerConfig {
   const production = env.NODE_ENV === 'production';
   const timeZone = env.SFCC_TIMEZONE || env.TZ || 'UTC';
@@ -60,6 +79,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.c
     devUnauthenticatedApi: env.SFCC_DEV_UNAUTHENTICATED_API === '1',
     production,
     bodyLimit: 64 * 1024,
+    cookieSecure: parseCookieSecure(env.SFCC_COOKIE_SECURE),
+    ...(env.SFCC_SETUP_CODE ? { setupCode: parseSetupCode(env.SFCC_SETUP_CODE) } : {}),
   };
   assertSafeConfig(config);
   return config;

@@ -23,8 +23,31 @@ export default defineConfig(({ mode }) => {
       port: PORT,
       strictPort: true,
       // changeOrigin rewrites Host to the target (127.0.0.1:3000), which the
-      // server's anti-DNS-rebinding check requires.
-      proxy: dataSource === 'api' ? { '/api': { target: API_TARGET, changeOrigin: true } } : undefined,
+      // server's anti-DNS-rebinding check requires. The server also rejects
+      // state-changing requests whose Origin doesn't match Host (CSRF check),
+      // so an Origin equal to THIS dev server's own address is rewritten to
+      // the target's. Any other Origin is passed through untouched, so
+      // cross-site requests are still refused by the server.
+      proxy:
+        dataSource === 'api'
+          ? {
+              '/api': {
+                target: API_TARGET,
+                changeOrigin: true,
+                configure: (proxy) => {
+                  proxy.on('proxyReq', (proxyReq, req) => {
+                    const origin = req.headers.origin;
+                    if (!origin) return;
+                    try {
+                      if (new URL(origin).host === req.headers.host) proxyReq.setHeader('origin', new URL(API_TARGET).origin);
+                    } catch {
+                      // Malformed Origin: leave it for the server to refuse.
+                    }
+                  });
+                },
+              },
+            }
+          : undefined,
     },
     preview: {
       port: PORT,

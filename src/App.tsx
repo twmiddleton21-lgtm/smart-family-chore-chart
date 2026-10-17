@@ -1,4 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { DATA_SOURCE } from './config';
+import { AccessProvider, useAccess, useAccessLoader } from './state/access';
+import { useToast } from './state/toast';
+import { SetupScreen } from './screens/auth/SetupScreen';
+import { LockedScreen } from './screens/auth/LockedScreen';
+import { ParentSignInDialog } from './screens/auth/ParentSignInDialog';
 import { useFamilyStore } from './state/useFamilyStore';
 import type { FamilyStore } from './state/storeTypes';
 import { ToastProvider } from './state/toast';
@@ -9,7 +15,7 @@ import { ParentGate } from './screens/ParentGate';
 import { DevParentNotice } from './screens/DevParentNotice';
 import { ParentArea, type ParentTab } from './screens/parent/ParentArea';
 import { MealReminderDialog } from './components/MealReminderDialog';
-import { DevBuildBanner, ServerStatusScreen } from './components/ServerStatus';
+import { AccessStatusScreen, DevBuildBanner, ServerStatusScreen } from './components/ServerStatus';
 import { mealReminders, shouldShowMealReminder } from './lib/meals';
 import type { FamilyData } from './types';
 
@@ -28,6 +34,41 @@ export function App() {
 }
 
 function AppShell() {
+  return DATA_SOURCE === 'api' ? <AccessGate /> : <StoreShell />;
+}
+
+/**
+ * Server builds: nothing of the family is loaded until the server says this
+ * browser may see it (a signed-in parent or a paired device). The server
+ * enforces this on every request; the gate only decides what to show.
+ */
+function AccessGate() {
+  const load = useAccessLoader();
+  if (load.state !== 'ready') {
+    return (
+      <div className="app">
+        <DevBuildBanner />
+        <AccessStatusScreen load={load} />
+      </div>
+    );
+  }
+  const { status } = load.access;
+  const locked = status.setupRequired || (!status.parent && !status.device);
+  return (
+    <AccessProvider access={load.access}>
+      {status.devMode || !locked ? (
+        <StoreShell />
+      ) : (
+        <div className="app">
+          <DevBuildBanner />
+          {status.setupRequired ? <SetupScreen access={load.access} /> : <LockedScreen access={load.access} />}
+        </div>
+      )}
+    </AccessProvider>
+  );
+}
+
+function StoreShell() {
   const store = useFamilyStore();
   if (!store.data) {
     return (
@@ -42,6 +83,11 @@ function AppShell() {
 
 function AppContent({ store, data }: { store: FamilyStore; data: FamilyData }) {
   const { actions, today } = store;
+  const access = useAccess();
+  const notify = useToast();
+  // Server build with real sign-in (not development mode).
+  const signIn = access !== null && !access.status.devMode;
+  const parentSignedIn = signIn && access.status.parent !== null;
   const [screen, setScreen] = useState<Screen>({ name: 'dashboard' });
   const [gateOpen, setGateOpen] = useState(false);
   const [loadNotice, setLoadNotice] = useState(store.loadNotice);
@@ -60,6 +106,49 @@ function AppContent({ store, data }: { store: FamilyStore; data: FamilyData }) {
     setGateOpen(false);
     setScreen({ name: 'parent' });
   };
+
+  /** Leave the parent area. On a shared family device this also signs the parent out. */
+  const exitParent = async () => {
+    goHome();
+    if (signIn && access.status.device && access.status.parent) {
+      await access.client.logout().catch(() => undefined);
+      await access.refresh();
+    }
+  };
+  const signOut = async () => {
+    goHome();
+    if (!signIn) return;
+    await access.client.logout().catch(() => undefined);
+    await access.refresh();
+  };
+
+  // If the parent session ends (expired, signed out elsewhere, removed), leave the parent area.
+  const inParentArea = screen.name === 'parent';
+  useEffect(() => {
+    if (inParentArea && signIn && !parentSignedIn) {
+      setScreen({ name: 'dashboard' });
+      notify('The parent session ended. Please sign in again.', 'info');
+    }
+  }, [inParentArea, signIn, parentSignedIn, notify]);
+
+  // After 30 minutes without any input in the parent area, ask the server
+  // again: if the session has expired there, the effect above locks the area.
+  useEffect(() => {
+    if (!inParentArea || !signIn) return;
+    let last = Date.now();
+    const touch = () => {
+      last = Date.now();
+    };
+    const events = ['pointerdown', 'keydown', 'wheel', 'touchstart'] as const;
+    for (const e of events) window.addEventListener(e, touch, { passive: true });
+    const timer = window.setInterval(() => {
+      if (Date.now() - last > 30 * 60 * 1000) void access.refresh();
+    }, 60 * 1000);
+    return () => {
+      for (const e of events) window.removeEventListener(e, touch);
+      window.clearInterval(timer);
+    };
+  }, [inParentArea, signIn, access]);
 
   return (
     <div className="app">
@@ -119,7 +208,16 @@ function AppContent({ store, data }: { store: FamilyStore; data: FamilyData }) {
         />
       )}
       {effective.name === 'parent' && (
-        <ParentArea data={data} actions={actions} mode={store.mode} today={today} initialTab={parentTab} onExit={goHome} />
+        <ParentArea
+          data={data}
+          actions={actions}
+          mode={store.mode}
+          today={today}
+          initialTab={parentTab}
+          access={signIn ? access : null}
+          onExit={() => void exitParent()}
+          onSignOut={() => void signOut()}
+        />
       )}
 
       {effective.name === 'dashboard' && !gateOpen && !reminderHidden && shouldShowMealReminder(data, today) && (
@@ -136,11 +234,23 @@ function AppContent({ store, data }: { store: FamilyStore; data: FamilyData }) {
       )}
 
       {gateOpen &&
-        (store.mode === 'api' ? (
+        (signIn ? (
+          parentSignedIn ? (
+            <AutoOpen onOpen={openParent} />
+          ) : (
+            <ParentSignInDialog access={access} onCancel={() => setGateOpen(false)} onSignedIn={openParent} />
+          )
+        ) : store.mode === 'api' ? (
           <DevParentNotice onCancel={() => setGateOpen(false)} onContinue={openParent} />
         ) : (
           <ParentGate pin={data.settings.parentPin} onCancel={() => setGateOpen(false)} onUnlock={openParent} />
         ))}
     </div>
   );
+}
+
+/** A parent is already signed in: go straight to the parent area. */
+function AutoOpen({ onOpen }: { onOpen: () => void }) {
+  useEffect(() => onOpen(), [onOpen]);
+  return null;
 }

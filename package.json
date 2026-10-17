@@ -11,6 +11,7 @@
     "dev": "vite --port 4174 --strictPort",
     "dev:api": "vite --mode api --port 4175 --strictPort",
     "dev:server": "tsx watch server/main.ts --dev-unauthenticated-api",
+    "dev:server:auth": "tsx watch server/main.ts",
     "build": "tsc --noEmit && vite build",
     "build:server": "vite build --config vite.server.config.ts",
     "preview": "vite preview --port 4174 --strictPort",
@@ -22,6 +23,7 @@
     "server:cli": "tsx server/cli.ts"
   },
   "dependencies": {
+    "@fastify/cookie": "11.1.2",
     "fastify": "5.12.5",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"

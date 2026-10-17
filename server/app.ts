@@ -1,28 +1,42 @@
-import Fastify, { type FastifyError, type FastifyInstance, type FastifyRequest } from 'fastify';
+import path from 'node:path';
+import cookie from '@fastify/cookie';
+import Fastify, { type FastifyError, type FastifyInstance, type FastifyReply, type FastifyRequest, type FastifyServerOptions } from 'fastify';
+import { AuthService, type AuthContext, type AuthError } from './auth/service';
 import type { ServerConfig } from './config';
+import { createBackup } from './db/backup';
 import type { SqlDatabase } from './db/database';
 import { currentSchemaVersion, LATEST_SCHEMA_VERSION } from './db/migrations';
-import path from 'node:path';
-import { createBackup } from './db/backup';
-import { COMMAND_TYPES, type Command } from './family/commands';
+import { COMMAND_TYPES, type Command, type CommandType } from './family/commands';
 import { buildExportFile, parseImport } from './family/importer';
 import type { FamilyStore } from './family/store';
 
-// HTTP API. Stage A has NO authentication yet, so family-data routes exist
-// only in the explicit development mode (config.devUnauthenticatedApi),
-// which config.ts allows only outside production and only on a loopback
-// address. In that mode every request must also come from a loopback
-// client, carry a loopback Host header for the configured port (defeats DNS
-// rebinding: a malicious site resolving its own name to 127.0.0.1) and, if
-// it has an Origin header, a loopback Origin (blocks cross-site browsers).
-// Otherwise every /api route answers 503 and no family data is reachable.
+// HTTP API.
+//
+// NORMAL MODE (default): every family-data route requires a signed-in parent
+// or a paired household device (session cookies, see server/auth). Paired
+// devices may only view and run DEVICE_COMMANDS; everything else needs a
+// parent. State-changing requests must not come from another site (Origin /
+// Sec-Fetch-Site check, plus SameSite=Strict cookies and JSON-only bodies).
+//
+// DEVELOPMENT MODE (explicit, see config.ts): no authentication at all, only
+// for loopback clients with a loopback Host header (anti DNS-rebinding) and
+// loopback Origin. Refused outside development and on non-loopback hosts.
 
 export interface AppDeps {
-  config: Pick<ServerConfig, 'devUnauthenticatedApi' | 'bodyLimit' | 'timeZone' | 'port' | 'dataDir'>;
+  config: Pick<ServerConfig, 'devUnauthenticatedApi' | 'bodyLimit' | 'timeZone' | 'port' | 'dataDir'> &
+    Partial<Pick<ServerConfig, 'cookieSecure'>>;
   db: SqlDatabase;
   store: FamilyStore;
-  logger?: boolean;
+  /** Required in normal mode (fails closed without it). */
+  auth?: AuthService;
+  logger?: FastifyServerOptions['logger'];
 }
+
+/** What a paired device may do without a parent signed in. */
+export const DEVICE_COMMANDS: ReadonlySet<CommandType> = new Set(['toggleChore', 'redeemReward', 'dismissMealReminder']);
+
+export const PARENT_COOKIE = 'sfcc_parent';
+export const DEVICE_COOKIE = 'sfcc_device';
 
 const LOOPBACK_ADDRESSES = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 
@@ -40,6 +54,26 @@ const LOOPBACK_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d{1,5})?
 /** No Origin (non-browser client) is fine; otherwise it must be a loopback origin. */
 export function isAllowedOrigin(origin: string | undefined): boolean {
   return origin === undefined || LOOPBACK_ORIGIN.test(origin.toLowerCase());
+}
+
+/**
+ * True if a request was sent by a page on another site. Browsers send
+ * Origin (and Sec-Fetch-Site) on POSTs; non-browser clients may send
+ * neither, which is fine (they can't ride on a victim's cookies).
+ */
+export function isCrossSite(request: FastifyRequest): boolean {
+  const site = request.headers['sec-fetch-site'];
+  if (typeof site === 'string' && site !== 'same-origin' && site !== 'none') return true;
+  const origin = request.headers.origin;
+  if (origin === undefined) return false;
+  try {
+    const o = new URL(origin);
+    // Parse Host with the Origin's scheme so default ports compare equal
+    // ("localhost:80" vs "http://localhost").
+    return o.host !== new URL(`${o.protocol}//${request.headers.host ?? ''}`).host;
+  } catch {
+    return true; // "null" or malformed
+  }
 }
 
 const commandBodySchema = {
@@ -75,8 +109,34 @@ const importApplySchema = {
   },
 } as const;
 
+const str = (max: number) => ({ type: 'string', maxLength: max }) as const;
+const idParams = {
+  type: 'object',
+  required: ['id'],
+  properties: { id: { type: 'string', pattern: '^[A-Za-z0-9_-]{1,100}$' } },
+} as const;
+const body = (required: string[], properties: Record<string, unknown>) => ({ type: 'object', additionalProperties: false, required, properties }) as const;
+
+const UNAUTHENTICATED = { error: 'unauthenticated', message: 'Please sign in or pair this device.' };
+const PARENT_REQUIRED = { error: 'parent_required', message: 'A parent needs to sign in for this.' };
+
+declare module 'fastify' {
+  interface FastifyRequest {
+    /** Set by the auth hook in normal mode; null in development mode. */
+    authCtx: AuthContext | null;
+  }
+  interface FastifyInstance {
+    /** Every registered route ("METHOD /path"), so tests can check access rules cover them all. */
+    sfccRoutes: string[];
+  }
+}
+
 export function buildApp(deps: AppDeps): FastifyInstance {
   const { config, db, store } = deps;
+  const dev = config.devUnauthenticatedApi;
+  if (!dev && !deps.auth) throw new Error('Authentication is required in normal mode (refusing to start without it).');
+  const auth = deps.auth;
+
   const app = Fastify({
     logger: deps.logger ?? false,
     bodyLimit: config.bodyLimit,
@@ -87,6 +147,15 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     // Fastify's defaults (silently removing extras / coercing "3" -> 3).
     ajv: { customOptions: { removeAdditional: false, coerceTypes: false, useDefaults: false } },
   });
+
+  const routes: string[] = [];
+  app.decorate('sfccRoutes', routes);
+  app.addHook('onRoute', (route) => {
+    for (const method of [route.method].flat()) if (method !== 'HEAD') routes.push(`${method} ${route.url}`);
+  });
+
+  void app.register(cookie);
+  app.decorateRequest('authCtx', null);
 
   // JSON only: drop the default text/plain parser so other content types get
   // 415. (This also means cross-site "simple" form posts cannot reach us.)
@@ -134,31 +203,191 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     }
   });
 
-  // ---------- family data API ----------
+  // ---------- access control ----------
 
-  if (!config.devUnauthenticatedApi) {
-    app.all('/api/*', async (_request, reply) =>
-      reply.status(503).send({
-        error: 'api_unavailable',
-        message: 'The family data API is disabled until authentication is implemented.',
-      }),
-    );
-    return app;
+  if (dev) {
+    // DEVELOPMENT ONLY: unauthenticated, loopback clients only. Applied to
+    // EVERY request (not a URL-prefix check, so encoded paths cannot bypass it).
+    const allowedHosts = loopbackHosts(config.port);
+    app.addHook('onRequest', async (request, reply) => {
+      reply.header('X-SFCC-Dev-Mode', 'unauthenticated-loopback-only');
+      const host = (request.headers.host ?? '').toLowerCase();
+      const origin = request.headers.origin;
+      if (!isLoopbackClient(request) || !allowedHosts.has(host) || !isAllowedOrigin(origin)) {
+        return reply.status(403).send({ error: 'forbidden', message: 'Development API is only available from this computer.' });
+      }
+    });
+    app.get('/api/auth/status', async () => ({ devMode: true, setupRequired: false, parent: null, device: null }));
+  } else {
+    // Cross-site check on EVERY state-changing request (not just /api paths,
+    // so encoded paths cannot slip past a prefix check).
+    app.addHook('onRequest', async (request, reply) => {
+      if (request.method !== 'GET' && request.method !== 'HEAD' && isCrossSite(request)) {
+        return reply.status(403).send({ error: 'cross_site_request', message: 'Requests from other websites are not allowed.' });
+      }
+    });
+    // Cookies are parsed in onRequest (plugin), so authenticate in preParsing:
+    // BEFORE the body is parsed or validated. Route guards below also run in
+    // preParsing, so unauthenticated callers never get their body parsed and
+    // never see validation errors that would describe the API.
+    app.addHook('preParsing', async (request, _reply, payload) => {
+      request.authCtx = auth!.authenticate(request.cookies[PARENT_COOKIE], request.cookies[DEVICE_COOKIE]);
+      return payload;
+    });
   }
 
-  // DEVELOPMENT ONLY: unauthenticated, loopback clients only. Applied to
-  // EVERY request (not a URL-prefix check, so encoded paths cannot bypass it).
-  const allowedHosts = loopbackHosts(config.port);
-  app.addHook('onRequest', async (request, reply) => {
-    reply.header('X-SFCC-Dev-Mode', 'unauthenticated-loopback-only');
-    const host = (request.headers.host ?? '').toLowerCase();
-    const origin = request.headers.origin;
-    if (!isLoopbackClient(request) || !allowedHosts.has(host) || !isAllowedOrigin(origin)) {
-      return reply.status(403).send({ error: 'forbidden', message: 'Development API is only available from this computer.' });
-    }
-  });
+  const ctxOf = (request: FastifyRequest): AuthContext => request.authCtx ?? { parent: null, device: null, parentSessionHash: null };
 
-  app.get('/api/state', async () => {
+  // Route guards (preParsing: before the body is read; see above).
+  type PreParsing = (request: FastifyRequest, reply: FastifyReply, payload: NodeJS.ReadableStream) => Promise<NodeJS.ReadableStream>;
+  /** Paired device or signed-in parent. */
+  const requireHousehold: PreParsing = async (request, reply, payload) => {
+    if (dev) return payload;
+    const c = ctxOf(request);
+    if (!c.parent && !c.device) await reply.status(401).send(UNAUTHENTICATED);
+    return payload;
+  };
+  /** Signed-in parent only. */
+  const requireParent: PreParsing = async (request, reply, payload) => {
+    if (dev) return payload;
+    const c = ctxOf(request);
+    if (!c.parent) await reply.status(c.device ? 403 : 401).send(c.device ? PARENT_REQUIRED : UNAUTHENTICATED);
+    return payload;
+  };
+  const actorOf = (request: FastifyRequest): string => {
+    if (dev) return 'dev-unauthenticated';
+    const c = ctxOf(request);
+    return c.parent ? `parent:${c.parent.id}` : `device:${c.device!.id}`;
+  };
+
+  const secureCookie = (request: FastifyRequest) =>
+    config.cookieSecure === 'always' ? true : config.cookieSecure === 'never' ? false : request.protocol === 'https';
+  const setSessionCookie = (request: FastifyRequest, reply: FastifyReply, name: string, token: string, maxAge: number | undefined) => {
+    void reply.setCookie(name, token, { httpOnly: true, sameSite: 'strict', path: '/', secure: secureCookie(request), ...(maxAge ? { maxAge } : {}) });
+  };
+  const clearSessionCookie = (request: FastifyRequest, reply: FastifyReply, name: string) => {
+    void reply.clearCookie(name, { httpOnly: true, sameSite: 'strict', path: '/', secure: secureCookie(request) });
+  };
+  const sendAuthError = (reply: FastifyReply, e: AuthError) => {
+    if (e.retryAfter) void reply.header('Retry-After', String(e.retryAfter));
+    return reply.status(e.status).send({ error: e.error, message: e.message, ...(e.retryAfter ? { retryAfter: e.retryAfter } : {}) });
+  };
+
+  // ---------- authentication, accounts and devices (normal mode) ----------
+
+  if (!dev && auth) {
+    app.get('/api/auth/status', async (request) => {
+      const c = ctxOf(request);
+      return { devMode: false, setupRequired: auth.isSetupRequired(), parent: c.parent, device: c.device };
+    });
+
+    app.post<{ Body: { setupCode: string; username: string; displayName: string; password: string } }>(
+      '/api/auth/setup',
+      { schema: { body: body(['setupCode', 'username', 'displayName', 'password'], { setupCode: str(64), username: str(64), displayName: str(80), password: str(256) }) } },
+      async (request, reply) => {
+        const r = await auth.completeSetup(request.body, request.ip);
+        if (!r.ok) return sendAuthError(reply, r);
+        setSessionCookie(request, reply, PARENT_COOKIE, r.token, AuthService.cookieMaxAge('parent', false));
+        request.log.info({ parentId: r.parent.id }, 'first parent account created');
+        return { parent: r.parent };
+      },
+    );
+
+    app.post<{ Body: { username: string; password: string; remember?: boolean } }>(
+      '/api/auth/login',
+      { schema: { body: body(['username', 'password'], { username: str(64), password: str(256), remember: { type: 'boolean' } }) } },
+      async (request, reply) => {
+        const remember = request.body.remember === true;
+        const r = await auth.login(request.body.username, request.body.password, remember, request.ip);
+        if (!r.ok) return sendAuthError(reply, r);
+        // Replace any older parent session held by this browser.
+        auth.logout(request.cookies[PARENT_COOKIE]);
+        setSessionCookie(request, reply, PARENT_COOKIE, r.token, AuthService.cookieMaxAge('parent', remember));
+        return { parent: r.parent };
+      },
+    );
+
+    app.post('/api/auth/logout', async (request, reply) => {
+      auth.logout(request.cookies[PARENT_COOKIE]);
+      clearSessionCookie(request, reply, PARENT_COOKIE);
+      return { ok: true };
+    });
+
+    app.get('/api/parents', { preParsing: requireParent }, async (request) => {
+      const me = ctxOf(request).parent!.id;
+      return { parents: auth.listParents().map((p) => ({ ...p, isYou: p.id === me })) };
+    });
+
+    app.post<{ Body: { username: string; displayName: string; password: string } }>(
+      '/api/parents',
+      { preParsing: requireParent, schema: { body: body(['username', 'displayName', 'password'], { username: str(64), displayName: str(80), password: str(256) }) } },
+      async (request, reply) => {
+        const r = await auth.createParent(request.body);
+        if (!r.ok) return sendAuthError(reply, r);
+        return { parent: r.parent };
+      },
+    );
+
+    app.post<{ Params: { id: string }; Body: { password: string } }>(
+      '/api/parents/:id/remove',
+      { preParsing: requireParent, schema: { params: idParams, body: body(['password'], { password: str(256) }) } },
+      async (request, reply) => {
+        const r = await auth.removeParent(ctxOf(request).parent!.id, request.params.id, request.body.password);
+        if (!r.ok) return sendAuthError(reply, r);
+        if (r.removedSelf) clearSessionCookie(request, reply, PARENT_COOKIE);
+        return { ok: true, removedSelf: r.removedSelf };
+      },
+    );
+
+    app.post<{ Body: { currentPassword: string; newPassword: string } }>(
+      '/api/account/password',
+      { preParsing: requireParent, schema: { body: body(['currentPassword', 'newPassword'], { currentPassword: str(256), newPassword: str(256) }) } },
+      async (request, reply) => {
+        const c = ctxOf(request);
+        const r = await auth.changeOwnPassword(c.parent!.id, request.body.currentPassword, request.body.newPassword, c.parentSessionHash);
+        if (!r.ok) return sendAuthError(reply, r);
+        return { ok: true };
+      },
+    );
+
+    app.get('/api/devices', { preParsing: requireParent }, async (request) => {
+      const current = ctxOf(request).device?.id ?? null;
+      return { devices: auth.listDevices().map((d) => ({ ...d, isThisDevice: d.id === current })) };
+    });
+
+    app.post<{ Body: { name: string } }>(
+      '/api/devices/pairing-codes',
+      { preParsing: requireParent, schema: { body: body(['name'], { name: str(80) }) } },
+      async (request, reply) => {
+        const r = auth.createPairingCode(ctxOf(request).parent!.id, request.body.name);
+        if (!r.ok) return sendAuthError(reply, r);
+        return { code: r.code, expiresAt: r.expiresAt };
+      },
+    );
+
+    app.post<{ Params: { id: string } }>('/api/devices/:id/revoke', { preParsing: requireParent, schema: { params: idParams } }, async (request, reply) => {
+      const r = auth.revokeDevice(request.params.id);
+      if (!r.ok) return sendAuthError(reply, r);
+      return { ok: true };
+    });
+
+    app.post<{ Body: { code: string } }>(
+      '/api/devices/pair',
+      { schema: { body: body(['code'], { code: str(32) }) } },
+      async (request, reply) => {
+        const r = auth.pairDevice(request.body.code, request.ip);
+        if (!r.ok) return sendAuthError(reply, r);
+        auth.forgetDeviceSession(request.cookies[DEVICE_COOKIE]);
+        setSessionCookie(request, reply, DEVICE_COOKIE, r.token, AuthService.cookieMaxAge('device', false));
+        request.log.info({ deviceId: r.device.id }, 'device paired');
+        return { device: r.device };
+      },
+    );
+  }
+
+  // ---------- family data ----------
+
+  app.get('/api/state', { preParsing: requireHousehold }, async () => {
     const state = store.read();
     return {
       stateVersion: state.stateVersion,
@@ -169,18 +398,19 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     };
   });
 
-  app.post<{ Body: Command }>('/api/commands', { schema: { body: commandBodySchema } }, async (request, reply) => {
-    const result = store.apply(request.body, 'dev-unauthenticated');
+  app.post<{ Body: Command }>('/api/commands', { preParsing: requireHousehold, schema: { body: commandBodySchema } }, async (request, reply) => {
+    if (!dev && !DEVICE_COMMANDS.has(request.body.type) && !ctxOf(request).parent) {
+      return reply.status(403).send(PARENT_REQUIRED);
+    }
+    const result = store.apply(request.body, actorOf(request));
     if (!result.ok) {
-      const { ok: _ok, status, ...body } = result;
-      return reply.status(status).send(body);
+      const { ok: _ok, status, ...rest } = result;
+      return reply.status(status).send(rest);
     }
     return { stateVersion: result.stateVersion, changed: result.changed, noChange: result.noChange };
   });
 
-  // ---------- export / import (development mode only for now) ----------
-
-  app.get('/api/export', async (_request, reply) => {
+  app.get('/api/export', { preParsing: requireParent }, async (_request, reply) => {
     const state = store.read();
     const file = buildExportFile(state.family, 'server');
     reply.header('Content-Disposition', `attachment; filename="chore-chart-export-${store.today()}.json"`);
@@ -189,7 +419,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
 
   app.post<{ Body: { data: unknown } }>(
     '/api/import/preview',
-    { bodyLimit: IMPORT_BODY_LIMIT, schema: { body: importPreviewSchema } },
+    { preParsing: requireParent, bodyLimit: IMPORT_BODY_LIMIT, schema: { body: importPreviewSchema } },
     async (request, reply) => {
       const parsed = parseImport(request.body.data);
       if (!parsed.ok) return reply.status(422).send({ error: parsed.error, message: parsed.message });
@@ -203,7 +433,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
 
   app.post<{ Body: { data: unknown; checksum: string; expectedStateVersion: number; replace: boolean } }>(
     '/api/import/apply',
-    { bodyLimit: IMPORT_BODY_LIMIT, schema: { body: importApplySchema } },
+    { preParsing: requireParent, bodyLimit: IMPORT_BODY_LIMIT, schema: { body: importApplySchema } },
     async (request, reply) => {
       const { data, checksum, expectedStateVersion, replace } = request.body;
       const parsed = parseImport(data);
@@ -219,7 +449,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
         return reply.status(409).send({ error: 'server_not_empty', message: 'This server already has family data. Confirm that you want to replace it.' });
       }
       const backup = await createBackup(db, config.dataDir, 'pre-import');
-      const result = store.importDocument(parsed.doc, { expectedStateVersion, replace }, 'dev-unauthenticated');
+      const result = store.importDocument(parsed.doc, { expectedStateVersion, replace }, actorOf(request));
       if (!result.ok) return reply.status(result.status).send({ error: result.error, message: result.message, backup: path.basename(backup) });
       return { stateVersion: result.stateVersion, backup: path.basename(backup) };
     },

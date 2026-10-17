@@ -7,7 +7,7 @@ test.use({ baseURL: 'http://localhost:4177' });
 
 test('local mode: sample family, PIN gate, chore toggle and export without PIN', async ({ page }) => {
   await page.goto('/');
-  await expect(page.getByText(/Development build/)).toHaveCount(0);
+  await expect(page.getByText(/Development (build|mode)|Pre-release build/)).toHaveCount(0);
   const later = page.getByRole('button', { name: 'Remind me tomorrow' });
   if (await later.isVisible().catch(() => false)) await later.click();
   await expect(page.getByRole('button', { name: /Open Maya's chore chart/ })).toBeVisible();

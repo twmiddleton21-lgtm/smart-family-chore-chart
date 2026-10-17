@@ -5,6 +5,7 @@ import { databasePath, openData } from '../open';
 import { tempDir } from '../testUtils';
 import { createBackup, listBackups, pruneBackups, restoreBackup, verifyBackup } from './backup';
 import { openDatabase } from './database';
+import { LATEST_SCHEMA_VERSION } from './migrations';
 
 let tmp: ReturnType<typeof tempDir>;
 beforeEach(() => {
@@ -26,7 +27,7 @@ describe('backups', () => {
       expect(existsSync(databasePath(tmp.dir) + '-wal')).toBe(true);
       const file = await createBackup(db, tmp.dir, 'manual');
       const check = verifyBackup(file);
-      expect(check).toMatchObject({ ok: true, schemaVersion: 1, stateVersion: 2 });
+      expect(check).toMatchObject({ ok: true, schemaVersion: LATEST_SCHEMA_VERSION, stateVersion: 2 });
       const b = openDatabase(file, { readOnly: true });
       try {
         expect(JSON.parse(b.get<{ data: string }>('SELECT data FROM family_state')!.data).children[0].name).toBe('Alex');

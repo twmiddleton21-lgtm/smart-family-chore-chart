@@ -44,6 +44,58 @@ export const MIGRATIONS: readonly Migration[] = [
       );
     `,
   },
+  {
+    version: 2,
+    name: 'parent accounts, sessions, paired devices and pairing codes',
+    sql: `
+      -- Parent accounts. Passwords are stored only as scrypt hashes.
+      CREATE TABLE parents (
+        id                   TEXT PRIMARY KEY,
+        username             TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        display_name         TEXT NOT NULL,
+        password_hash        TEXT NOT NULL,
+        created_at           TEXT NOT NULL,
+        password_changed_at  TEXT NOT NULL
+      );
+
+      -- Household devices (e.g. a kiosk) paired by a parent.
+      CREATE TABLE devices (
+        id            TEXT PRIMARY KEY,
+        name          TEXT NOT NULL,
+        created_by    TEXT REFERENCES parents(id) ON DELETE SET NULL,
+        created_at    TEXT NOT NULL,
+        last_seen_at  TEXT
+      );
+
+      -- Sessions. Only a SHA-256 hash of the random token is stored; the
+      -- token itself lives only in the browser's HttpOnly cookie.
+      CREATE TABLE sessions (
+        token_hash           TEXT PRIMARY KEY,
+        kind                 TEXT NOT NULL CHECK (kind IN ('parent', 'device')),
+        parent_id            TEXT REFERENCES parents(id) ON DELETE CASCADE,
+        device_id            TEXT REFERENCES devices(id) ON DELETE CASCADE,
+        remember             INTEGER NOT NULL DEFAULT 0,
+        created_at           TEXT NOT NULL,
+        last_used_at         TEXT NOT NULL,
+        idle_expires_at      TEXT NOT NULL,
+        absolute_expires_at  TEXT NOT NULL,
+        CHECK ((kind = 'parent' AND parent_id IS NOT NULL AND device_id IS NULL)
+            OR (kind = 'device' AND device_id IS NOT NULL AND parent_id IS NULL))
+      );
+      CREATE INDEX sessions_by_parent ON sessions(parent_id);
+      CREATE INDEX sessions_by_device ON sessions(device_id);
+
+      -- One-time pairing codes (hashed), created by a signed-in parent.
+      CREATE TABLE pairing_codes (
+        code_hash    TEXT PRIMARY KEY,
+        device_name  TEXT NOT NULL,
+        created_by   TEXT NOT NULL REFERENCES parents(id) ON DELETE CASCADE,
+        created_at   TEXT NOT NULL,
+        expires_at   TEXT NOT NULL,
+        used_at      TEXT
+      );
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version;

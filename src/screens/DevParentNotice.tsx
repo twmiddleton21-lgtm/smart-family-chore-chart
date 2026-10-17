@@ -6,21 +6,21 @@ interface DevParentNoticeProps {
 }
 
 /**
- * Server development build only: there is NO parent sign-in yet, so instead
- * of a PIN that would only look like protection, say so plainly.
+ * Server DEVELOPMENT MODE only: there is no parent sign-in in this mode, so
+ * instead of a PIN that would only look like protection, say so plainly.
  */
 export function DevParentNotice({ onContinue, onCancel }: DevParentNoticeProps) {
   return (
-    <Modal title="Parent area (development build)" onClose={onCancel} size="sm">
+    <Modal title="Parent area (development mode)" onClose={onCancel} size="sm">
       <div className="confirm-body">
         <p className="confirm-emoji" aria-hidden="true">
           🧪
         </p>
         <p>
-          This development build has <strong>no parent sign-in yet</strong>. Anyone using this computer can change family
-          data here.
+          The family server is running in development mode, which has <strong>no parent sign-in</strong>. Anyone using
+          this computer can change family data here.
         </p>
-        <p className="muted">Parent accounts and device pairing arrive in a later version. Don’t use this build for real family data.</p>
+        <p className="muted">Start the server normally to use parent accounts and device pairing. Don’t use development mode for real family data.</p>
       </div>
       <div className="button-row">
         <button type="button" className="button button-secondary" onClick={onCancel} data-autofocus>

@@ -8,11 +8,14 @@ import { ChildrenPanel } from './ChildrenPanel';
 import { MealsPanel } from './MealsPanel';
 import { RewardsPanel } from './RewardsPanel';
 import { SettingsPanel } from './SettingsPanel';
+import { AccessPanel } from './AccessPanel';
+import type { Access } from '../../state/access';
 
-export type ParentTab = 'chores' | 'children' | 'meals' | 'rewards' | 'settings';
+export type ParentTab = 'chores' | 'children' | 'meals' | 'rewards' | 'settings' | 'access';
 type Tab = ParentTab;
 
-const TABS: { id: Tab; label: string; icon: string }[] = [
+const ACCESS_TAB = { id: 'access' as const, label: 'Family access', icon: '🔑' };
+const BASE_TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'chores', label: 'Chores', icon: '🧹' },
   { id: 'children', label: 'Children', icon: '👧' },
   { id: 'meals', label: 'School meals', icon: '🍽️' },
@@ -26,17 +29,25 @@ interface ParentAreaProps {
   mode: DataSource;
   today: DateKey;
   initialTab?: ParentTab;
+  /** Server build with sign-in: enables the Family access tab. */
+  access?: Access | null;
   onExit: () => void;
+  onSignOut?: () => void;
 }
 
-export function ParentArea({ data, actions, mode, today, initialTab = 'chores', onExit }: ParentAreaProps) {
+export function ParentArea({ data, actions, mode, today, initialTab = 'chores', access = null, onExit, onSignOut }: ParentAreaProps) {
+  const TABS = access ? [...BASE_TABS, ACCESS_TAB] : BASE_TABS;
   const [tab, setTab] = useState<Tab>(initialTab);
+  // On a parent's own (unpaired) device, leaving keeps them signed in; on a
+  // shared family device, or with the browser PIN, leaving locks the area.
+  const exitLabel = access && !access.status.device ? 'Done' : 'Done – lock & exit';
   const tabRefs = useRef<Record<Tab, HTMLButtonElement | null>>({
     chores: null,
     children: null,
     meals: null,
     rewards: null,
     settings: null,
+    access: null,
   });
 
   // Arrow-key navigation between tabs, per the WAI-ARIA tabs pattern.
@@ -60,7 +71,7 @@ export function ParentArea({ data, actions, mode, today, initialTab = 'chores', 
           <span aria-hidden="true">🔓</span> Parent area
         </ScreenTitle>
         <button type="button" className="button button-primary" onClick={onExit}>
-          Done – lock &amp; exit
+          {exitLabel}
         </button>
       </header>
 
@@ -92,6 +103,7 @@ export function ParentArea({ data, actions, mode, today, initialTab = 'chores', 
         {tab === 'meals' && <MealsPanel data={data} actions={actions} today={today} />}
         {tab === 'rewards' && <RewardsPanel data={data} actions={actions} />}
         {tab === 'settings' && <SettingsPanel data={data} actions={actions} mode={mode} />}
+        {tab === 'access' && access && <AccessPanel access={access} onSignOut={() => onSignOut?.()} />}
       </section>
     </main>
   );

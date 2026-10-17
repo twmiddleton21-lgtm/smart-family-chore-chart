@@ -2,6 +2,8 @@ import net from 'node:net';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from './app';
+import { AuthService } from './auth/service';
+import { LATEST_SCHEMA_VERSION } from './db/migrations';
 import { openData } from './open';
 import { tempDir } from './testUtils';
 
@@ -13,7 +15,8 @@ async function start(devUnauthenticatedApi: boolean) {
   const opened = await openData(tmp.dir, 'Europe/London');
   closeDb = () => opened.db.close();
   // light-my-request sends "Host: localhost:80" by default, so use port 80 here.
-  app = buildApp({ config: { devUnauthenticatedApi, bodyLimit: 64 * 1024, timeZone: 'Europe/London', port: 80, dataDir: tmp.dir }, db: opened.db, store: opened.store });
+  const auth = devUnauthenticatedApi ? undefined : new AuthService(opened.db);
+  app = buildApp({ config: { devUnauthenticatedApi, bodyLimit: 64 * 1024, timeZone: 'Europe/London', port: 80, dataDir: tmp.dir }, db: opened.db, store: opened.store, auth });
   await app.ready();
   return opened;
 }
@@ -22,8 +25,12 @@ beforeEach(() => {
   tmp = tempDir();
 });
 afterEach(async () => {
+  // Each test starts its own app/db; clear the handles so a test that
+  // doesn't call start() never closes the previous test's (closed) db.
   await app?.close();
   closeDb?.();
+  app = undefined as unknown as FastifyInstance;
+  closeDb = undefined as unknown as () => void;
   tmp.cleanup();
 });
 
@@ -38,7 +45,7 @@ describe('health endpoints (always available, no family data)', () => {
     expect(h.json()).toEqual({ status: 'ok' });
     const r = await app.inject('/readyz');
     expect(r.statusCode).toBe(200);
-    expect(r.json()).toEqual({ status: 'ready', schemaVersion: 1 });
+    expect(r.json()).toEqual({ status: 'ready', schemaVersion: LATEST_SCHEMA_VERSION });
   });
 
   it('/readyz reports 503 when the database is unavailable', async () => {
@@ -60,17 +67,36 @@ describe('health endpoints (always available, no family data)', () => {
   });
 });
 
-describe('default (non-development) mode exposes no family data', () => {
+describe('normal mode without signing in exposes no family data', () => {
+  // Stage C: normal mode now serves the API, but only to signed-in parents
+  // and paired devices. Before Stage C these routes answered 503.
   it.each([
     ['GET', '/api/state'],
     ['POST', '/api/commands'],
-    ['GET', '/api/anything'],
-  ])('%s %s -> 503', async (method, url) => {
+  ])('%s %s -> 401 unauthenticated', async (method, url) => {
     await start(false);
     const r = await app.inject({ method: method as 'GET', url, payload: method === 'POST' ? { type: 'loadDemoFamily', payload: {} } : undefined });
-    expect(r.statusCode).toBe(503);
-    expect(r.json().error).toBe('api_unavailable');
+    expect(r.statusCode).toBe(401);
+    expect(r.json().error).toBe('unauthenticated');
     expect(r.body).not.toContain('children');
+  });
+
+  it('unknown /api routes are a plain 404 with no data', async () => {
+    await start(false);
+    const r = await app.inject('/api/anything');
+    expect(r.statusCode).toBe(404);
+    expect(r.body).not.toContain('children');
+  });
+
+  it('refuses to build in normal mode without the authentication service (fails closed)', async () => {
+    const opened = await openData(tmp.dir, 'UTC');
+    try {
+      expect(() =>
+        buildApp({ config: { devUnauthenticatedApi: false, bodyLimit: 1024, timeZone: 'UTC', port: 80, dataDir: tmp.dir }, db: opened.db, store: opened.store }),
+      ).toThrow(/Authentication is required/);
+    } finally {
+      opened.db.close();
+    }
   });
 
   it('a command sent in default mode changes nothing', async () => {

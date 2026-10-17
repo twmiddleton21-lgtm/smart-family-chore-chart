@@ -99,7 +99,7 @@ export function useApiFamilyStore(client: ApiClient = defaultClient): FamilyStor
       addFoodOption: (category, name) => run(commands.addFoodOption(category, name)),
       removeFoodOption: (category, id) => run(commands.removeFoodOption(category, id)),
       updateFamilyName: (name, base) => run(commands.updateFamilyName(name, base, versionOf)),
-      updatePin: async () => unsupported('The PIN is not used with the shared family server. Parent sign-in comes in a later version.'),
+      updatePin: async () => unsupported('The PIN is not used with the shared family server. Parents sign in with their own accounts instead.'),
       resetDemoData: async () => unsupported('Resetting is not available with the shared family server.'),
       loadDemoFamily: () => run(commands.loadDemoFamily()),
       versionOf,

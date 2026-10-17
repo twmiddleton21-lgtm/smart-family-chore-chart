@@ -1,4 +1,5 @@
 import { buildApp } from './app';
+import { AuthService } from './auth/service';
 import { ConfigError, loadConfig } from './config';
 import { SchemaTooNewError } from './db/migrations';
 import { databasePath, openData } from './open';
@@ -14,7 +15,8 @@ async function main(): Promise<void> {
   const config = loadConfig(env);
 
   const opened = await openData(config.dataDir, config.timeZone);
-  const app = buildApp({ config, db: opened.db, store: opened.store, logger: true });
+  const auth = config.devUnauthenticatedApi ? undefined : new AuthService(opened.db, { setupCode: config.setupCode });
+  const app = buildApp({ config, db: opened.db, store: opened.store, auth, logger: true });
 
   app.log.info({ database: databasePath(config.dataDir), timeZone: config.timeZone, today: opened.store.today() }, 'data opened');
   if (opened.created) app.log.info('created a new, empty household');
@@ -23,8 +25,27 @@ async function main(): Promise<void> {
     app.log.warn(
       'DEVELOPMENT MODE: the family data API has NO authentication and is limited to loopback clients. Never use this for real families or expose it on a network.',
     );
-  } else {
-    app.log.info('family data API disabled (authentication not implemented yet); only /healthz and /readyz are served');
+  } else if (auth) {
+    auth.purgeExpired();
+    const generated = auth.prepareSetup();
+    if (auth.isSetupRequired()) {
+      // The one place a credential is shown: printed once to the console
+      // (not the request log) so the person running the server can set up
+      // the first parent account. Valid until that account exists.
+      console.log(
+        generated
+          ? [
+              '',
+              '  FIRST-RUN SETUP: no parent account exists yet.',
+              `  Open the app and enter this setup code: ${generated}`,
+              '  (A new code is generated each time the server starts until setup is done.)',
+              '',
+            ].join('\n')
+          : '\n  FIRST-RUN SETUP: no parent account exists yet. Use the setup code from SFCC_SETUP_CODE.\n',
+      );
+    } else {
+      app.log.info('authentication enabled; family data requires a signed-in parent or a paired device');
+    }
   }
 
   const shutdown = async (signal: string) => {

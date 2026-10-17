@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { completeChore } from '../src/lib/chores';
 import { makeFamily } from '../src/lib/testFixtures';
 import { buildApp } from './app';
+import { AuthService } from './auth/service';
 import { backupDir, listBackups } from './db/backup';
 import { FamilyStore } from './family/store';
 import { openData } from './open';
@@ -20,6 +21,7 @@ async function start(devUnauthenticatedApi = true) {
     config: { devUnauthenticatedApi, bodyLimit: 64 * 1024, timeZone: 'Europe/London', port: 80, dataDir: tmp.dir },
     db: opened.db,
     store: opened.store,
+    auth: devUnauthenticatedApi ? undefined : new AuthService(opened.db),
   });
   await app.ready();
 }
@@ -198,16 +200,17 @@ describe('export', () => {
   });
 });
 
-describe('normal mode keeps import/export closed', () => {
+describe('normal mode keeps import/export closed without a signed-in parent', () => {
   it.each([
     ['GET', '/api/export'],
     ['POST', '/api/import/preview'],
     ['POST', '/api/import/apply'],
-  ])('%s %s -> 503', async (method, url) => {
+  ])('%s %s -> 401', async (method, url) => {
     await start(false);
     const r = await app.inject({ method: method as 'GET', url, payload: method === 'POST' ? { data: browserData() } : undefined });
-    expect(r.statusCode).toBe(503);
-    expect(r.json().error).toBe('api_unavailable');
+    expect(r.statusCode).toBe(401);
+    expect(r.json().error).toBe('unauthenticated');
+    expect(r.body).not.toContain('children');
     expect(opened.store.read().stateVersion).toBe(1);
   });
 });

@@ -841,3 +841,64 @@
     gap: 0.1rem;
   }
 }
+
+/* ---------- Sign-in, pairing and family access ---------- */
+
+.auth-card {
+  width: min(100%, 32rem);
+  justify-items: stretch;
+  text-align: left;
+}
+.auth-card > .status-emoji,
+.auth-card > .screen-title {
+  justify-self: center;
+  text-align: center;
+}
+.auth-section {
+  display: grid;
+  gap: 0.75rem;
+  padding-top: 1rem;
+  border-top: 2px solid var(--line);
+}
+.access-list {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.access-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius);
+  background: var(--surface-muted);
+  border: 2px solid var(--line);
+}
+.access-row .pill {
+  margin-left: 0.5rem;
+  padding: 0.1rem 0.6rem;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 2px solid var(--line);
+  font-size: 0.85rem;
+  font-weight: 800;
+}
+.pairing-code {
+  display: grid;
+  gap: 0.5rem;
+  padding: 1rem 1.25rem;
+  border-radius: var(--radius);
+  background: var(--surface-muted);
+  border: 2px dashed var(--line);
+  text-align: center;
+}
+.pairing-code-value {
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: 2rem;
+  font-weight: 800;
+  letter-spacing: 0.15em;
+}

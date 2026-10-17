@@ -8,6 +8,7 @@ import { TextField } from '../../components/Field';
 import { recordKey } from '../../state/apiCommands';
 import type { FamilyActions } from '../../state/storeTypes';
 import { useToast } from '../../state/toast';
+import { useAccess } from '../../state/access';
 import { FamilyDataCard } from './FamilyDataCard';
 
 interface PanelProps {
@@ -18,6 +19,7 @@ interface PanelProps {
 
 export function SettingsPanel({ data, actions, mode }: PanelProps) {
   const notify = useToast();
+  const access = useAccess();
   const [familyName, setFamilyName] = useState(data.settings.familyName);
   // Version of the settings when this panel opened (server mode conflict check).
   const [settingsVersion, setSettingsVersion] = useState(() => actions.versionOf(recordKey.settings()));
@@ -116,14 +118,19 @@ export function SettingsPanel({ data, actions, mode }: PanelProps) {
             Change PIN
           </button>
         </form>
+      ) : access && !access.status.devMode ? (
+        <section className="settings-card">
+          <h2 className="section-subtitle">Parent sign-in</h2>
+          <p>Each parent signs in with their own account. Manage parents and family devices in the Family access tab.</p>
+        </section>
       ) : (
         <section className="settings-card settings-danger">
           <h2 className="section-subtitle">Parent sign-in</h2>
           <p>
-            <strong>Not available yet.</strong> This development build of the shared family server has no parent accounts
-            or device pairing, so anyone using this computer can change family data.
+            <strong>Off in development mode.</strong> The family server is running in development mode, which has no parent
+            accounts or device pairing, so anyone using this computer can change family data.
           </p>
-          <p className="muted">Sign-in arrives in a later version. Don’t use this build for real family data.</p>
+          <p className="muted">Start the server normally to use sign-in. Don’t use development mode for real family data.</p>
         </section>
       )}
 

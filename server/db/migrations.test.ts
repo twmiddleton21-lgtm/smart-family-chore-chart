@@ -25,7 +25,7 @@ describe('schema migrations', () => {
       expect(currentSchemaVersion(db)).toBe(0);
       expect(runMigrations(db)).toEqual(MIGRATIONS.map((m) => m.version));
       expect(currentSchemaVersion(db)).toBe(LATEST_SCHEMA_VERSION);
-      expect(tables(db)).toEqual(['command_log', 'family_state', 'record_versions', 'schema_migrations']);
+      expect(tables(db)).toEqual(['command_log', 'devices', 'family_state', 'pairing_codes', 'parents', 'record_versions', 'schema_migrations', 'sessions']);
     } finally {
       db.close();
     }
@@ -77,7 +77,7 @@ describe('schema migrations', () => {
     try {
       expect(second.created).toBe(false);
       expect(second.migrated).toEqual([LATEST_SCHEMA_VERSION + 1]);
-      expect(second.preMigrationBackup).toMatch(/pre-migration-v1-to-v2\.db$/);
+      expect(second.preMigrationBackup).toMatch(new RegExp(`pre-migration-v${LATEST_SCHEMA_VERSION}-to-v${LATEST_SCHEMA_VERSION + 1}\\.db$`));
       // The backup holds the pre-upgrade schema and the family data.
       const backup = openDatabase(second.preMigrationBackup!, { readOnly: true });
       try {
@@ -89,6 +89,29 @@ describe('schema migrations', () => {
       }
     } finally {
       second.db.close();
+    }
+  });
+
+  it('upgrades a real Stage A/B (schema v1) database to v2: family data kept, backup taken, no accounts yet', async () => {
+    // Build a schema-v1 database exactly as Stage A/B left it, with family data.
+    const v1 = openDatabase(path.join(tmp.dir, 'chorechart.db'));
+    runMigrations(v1, MIGRATIONS.slice(0, 1));
+    const { FamilyStore } = await import('../family/store');
+    const oldStore = new FamilyStore(v1, { timeZone: 'UTC' });
+    oldStore.initialize();
+    oldStore.apply({ type: 'loadDemoFamily', payload: {} }, 'test');
+    const before = oldStore.read();
+    v1.close();
+
+    const upgraded = await openData(tmp.dir, 'UTC');
+    try {
+      expect(upgraded.migrated).toEqual([2]);
+      expect(upgraded.preMigrationBackup).toMatch(/pre-migration-v1-to-v2\.db$/);
+      expect(upgraded.store.read()).toEqual(before);
+      expect(upgraded.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM parents')!.n).toBe(0);
+      expect(currentSchemaVersion(upgraded.db)).toBe(2);
+    } finally {
+      upgraded.db.close();
     }
   });
 });

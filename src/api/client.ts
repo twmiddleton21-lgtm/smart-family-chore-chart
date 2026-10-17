@@ -12,7 +12,13 @@ export type ApiErrorKind =
   | 'invalid' // 400: malformed request (a bug, or a stale file)
   | 'not_found' // 404
   | 'forbidden' // 403
+  | 'unauthenticated' // 401: not signed in / not paired (or the session ended)
+  | 'parent_required' // 403: a paired device tried something only a parent may do
+  | 'rate_limited' // 429: too many attempts
   | 'server'; // 500 or an unexpected response
+
+/** Fired on window when the server says the sign-in state changed (401 / parent required). */
+export const AUTH_CHANGED_EVENT = 'sfcc:auth-changed';
 
 export class ApiError extends Error {
   constructor(
@@ -70,12 +76,15 @@ export interface ApiClient {
 
 const FRIENDLY: Record<ApiErrorKind, string> = {
   unreachable: 'Can’t reach the family server. Check that it is running, then try again.',
-  disabled: 'This server’s family data is switched off until sign-in is available.',
+  disabled: 'This server’s family data is switched off.',
   conflict: 'This was changed on another device.',
   rejected: 'That change wasn’t accepted.',
   invalid: 'The app sent a request the server didn’t understand. Please reload the page.',
   not_found: 'That item no longer exists. It may have been removed on another device.',
   forbidden: 'The server refused this request.',
+  unauthenticated: 'Please sign in again.',
+  parent_required: 'A parent needs to sign in for this.',
+  rate_limited: 'Too many attempts. Please wait a few minutes and try again.',
   server: 'The server had a problem. Please try again.',
 };
 
@@ -85,14 +94,21 @@ function kindFor(status: number, error: unknown): ApiErrorKind {
   if (status === 422) return 'rejected';
   if (status === 400 || status === 413 || status === 415) return 'invalid';
   if (status === 404) return 'not_found';
-  if (status === 403) return 'forbidden';
+  if (status === 401) return 'unauthenticated';
+  if (status === 403) return error === 'parent_required' ? 'parent_required' : 'forbidden';
+  if (status === 429) return 'rate_limited';
   // Gateway errors (e.g. the dev proxy when the server is down) mean "unreachable".
   if (status === 502 || status === 503 || status === 504) return 'unreachable';
   return 'server';
 }
 
-export function createApiClient(fetchImpl: typeof fetch = (...args) => fetch(...args), base = ''): ApiClient {
-  async function request<T>(method: 'GET' | 'POST', path: string, body?: unknown): Promise<T> {
+export type Requester = <T>(method: 'GET' | 'POST', path: string, body?: unknown) => Promise<T>;
+
+/** Kinds where the server's own message is the most helpful one to show. */
+const SERVER_WORDED: ReadonlySet<ApiErrorKind> = new Set(['rejected', 'conflict', 'not_found', 'rate_limited', 'forbidden', 'unauthenticated']);
+
+export function createRequester(fetchImpl: typeof fetch = (...args) => fetch(...args), base = ''): Requester {
+  return async function request<T>(method: 'GET' | 'POST', path: string, body?: unknown): Promise<T> {
     let response: Response;
     try {
       response = await fetchImpl(base + path, {
@@ -121,12 +137,19 @@ export function createApiClient(fetchImpl: typeof fetch = (...args) => fetch(...
     }
     const kind = kindFor(response.status, obj?.error);
     const serverMessage = typeof obj?.message === 'string' ? obj.message : null;
-    // Prefer the server's own message for business-rule answers; use our
-    // wording for transport-level problems.
-    const message = (kind === 'rejected' || kind === 'conflict' || kind === 'not_found') && serverMessage ? serverMessage : FRIENDLY[kind];
+    // Prefer the server's own message for business-rule and sign-in answers;
+    // use our wording for transport-level problems.
+    const message = SERVER_WORDED.has(kind) && serverMessage ? serverMessage : FRIENDLY[kind];
+    // The session ended or more rights are needed: let the app re-check who is signed in.
+    if ((obj?.error === 'unauthenticated' || obj?.error === 'parent_required') && typeof window !== 'undefined') {
+      window.dispatchEvent(new Event(AUTH_CHANGED_EVENT));
+    }
     throw new ApiError(kind, message, response.status, obj);
-  }
+  };
+}
 
+export function createApiClient(fetchImpl: typeof fetch = (...args) => fetch(...args), base = ''): ApiClient {
+  const request = createRequester(fetchImpl, base);
   return {
     getState: () => request<ServerState>('GET', '/api/state'),
     sendCommand: (command) => request<CommandResponse>('POST', '/api/commands', command),

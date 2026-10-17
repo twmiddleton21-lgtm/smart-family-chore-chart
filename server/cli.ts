@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { createBackup, listBackups, pruneBackups, restoreBackup, verifyBackup } from './db/backup';
 import { openDatabase } from './db/database';
 import { currentSchemaVersion, LATEST_SCHEMA_VERSION } from './db/migrations';
+import { AuthService } from './auth/service';
 import { loadConfig } from './config';
 import { databasePath } from './open';
 
@@ -11,6 +12,8 @@ import { databasePath } from './open';
 //   prune <keep> [label]        keep only the newest <keep> backups
 //   verify <file>               check a backup file
 //   restore <file> --yes        OFFLINE restore: stop the server first!
+//   list-parents                show parent usernames (no secrets)
+//   reset-password <username>   set a temporary password; signs that parent out everywhere
 
 async function main(): Promise<number> {
   const [command, ...args] = process.argv.slice(2);
@@ -67,8 +70,31 @@ async function main(): Promise<number> {
       console.log(`Restored ${args[0]} -> ${dbFile}` + (result.movedAside ? `\nPrevious database kept at ${result.movedAside}` : ''));
       return 0;
     }
+    case 'list-parents':
+    case 'reset-password': {
+      if (!existsSync(dbFile)) throw new Error(`No database found at ${dbFile}.`);
+      const db = openDatabase(dbFile);
+      try {
+        if (currentSchemaVersion(db) < 2) throw new Error('This database has no parent accounts yet (start the server once to upgrade it).');
+        const auth = new AuthService(db);
+        if (command === 'list-parents') {
+          const parents = auth.listParents();
+          if (parents.length === 0) console.log('No parent accounts yet. Start the server and use the first-run setup code.');
+          for (const p of parents) console.log(`${p.username}  (${p.displayName}, created ${p.createdAt})`);
+          return 0;
+        }
+        if (!args[0]) throw new Error('Usage: reset-password <username>');
+        const r = await auth.resetPassword(args[0]);
+        if (!r.ok) throw new Error(r.message);
+        console.log(`Temporary password for ${args[0]}: ${r.temporaryPassword}
+Sign in with it and change it straight away (Parent area → Family access). All of this parent's sessions were signed out.`);
+        return 0;
+      } finally {
+        db.close();
+      }
+    }
     default:
-      console.error('Commands: status | backup [label] | prune <keep> [label] | verify <file> | restore <file> --yes');
+      console.error('Commands: status | backup [label] | prune <keep> [label] | verify <file> | restore <file> --yes | list-parents | reset-password <username>');
       return 1;
   }
 }

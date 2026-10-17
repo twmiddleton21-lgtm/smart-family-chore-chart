@@ -17,18 +17,18 @@ async function dismissMealReminder(page: Page) {
 
 async function openParentArea(page: Page) {
   await page.getByRole('button', { name: /Parent area/ }).first().click();
-  await expect(page.getByRole('dialog', { name: 'Parent area (development build)' })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Parent area (development mode)' })).toBeVisible();
   await page.getByRole('button', { name: 'Continue to parent area' }).click();
   await expect(page.getByRole('heading', { name: /Parent area/ })).toBeVisible();
 }
 
 test('a new server starts empty, with a clear development notice instead of a PIN', async ({ page }) => {
   await page.goto('/');
-  await expect(page.getByText(/Development build: shared family server with/)).toBeVisible();
+  await expect(page.getByText(/Development mode: shared family server with/)).toBeVisible();
   await expect(page.getByText('No profiles yet.', { exact: false })).toBeVisible();
   await page.getByRole('button', { name: /Parent area/ }).first().click();
-  const notice = page.getByRole('dialog', { name: 'Parent area (development build)' });
-  await expect(notice).toContainText('no parent sign-in yet');
+  const notice = page.getByRole('dialog', { name: 'Parent area (development mode)' });
+  await expect(notice).toContainText('no parent sign-in');
   await expect(page.getByLabel('Enter the parent PIN')).toHaveCount(0);
 });
 
