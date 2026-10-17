@@ -1,0 +1,68 @@
+# syntax=docker/dockerfile:1
+#
+# Smart Family Chore Chart: SHARED FAMILY SERVER image (release candidate).
+#
+# One Node.js container: the Fastify server serves the app and the API, with
+# the family data, parent accounts and paired devices in SQLite under /data
+# (mount a volume there). Production mode is fixed (NODE_ENV=production), so
+# the development-only unauthenticated mode can't be enabled.
+#
+# This is separate from ./Dockerfile, which builds the published
+# browser-only image (static files, data in each browser). Build this one
+# locally with a unique tag; see docs/DOCKER-SERVER.md.
+#
+# The base image is the same pinned tag + digest as ./Dockerfile.
+
+ARG NODE_IMAGE=node:24.21.0-alpine3.24@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1
+
+# ---------- Build: the app (server build) and the server bundle ----------
+FROM ${NODE_IMAGE} AS build
+WORKDIR /app
+ENV CI=true
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY index.html tsconfig.json vite.config.ts vite.server.config.ts ./
+COPY public ./public
+COPY src ./src
+COPY server ./server
+RUN npm run build:app && npm run build:server
+
+# ---------- Runtime dependencies only (from the lockfile) ----------
+FROM ${NODE_IMAGE} AS deps
+WORKDIR /app
+ENV CI=true
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --no-audit --no-fund && npm cache clean --force
+
+# ---------- Runtime ----------
+FROM ${NODE_IMAGE} AS runtime
+
+LABEL org.opencontainers.image.title="Smart Family Chore Chart (shared family server)" \
+      org.opencontainers.image.description="Release candidate: shared family data with parent sign-in and paired devices, stored in SQLite under /data." \
+      org.opencontainers.image.licenses="UNLICENSED"
+
+WORKDIR /app
+ENV NODE_ENV=production \
+    SFCC_HOST=0.0.0.0 \
+    SFCC_PORT=3000 \
+    SFCC_DATA_DIR=/data \
+    SFCC_STATIC_DIR=/app/dist-app
+
+COPY package.json ./
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=build /app/dist-server ./dist-server
+COPY --from=build /app/dist-app ./dist-app
+
+# The data folder belongs to the unprivileged "node" user (uid 1000) that the
+# server runs as. A named volume mounted here starts with this ownership.
+RUN mkdir -p /data && chown node:node /data
+USER node
+
+EXPOSE 3000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.SFCC_PORT||3000)+'/readyz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"
+
+# The server handles SIGTERM (docker stop) by closing the server and the
+# database cleanly.
+CMD ["node", "dist-server/main.js"]

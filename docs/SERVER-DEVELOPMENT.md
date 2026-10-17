@@ -43,6 +43,7 @@ Configuration (environment variables):
 | `SFCC_COOKIE_SECURE` | `auto` | `auto` marks session cookies `Secure` when the request arrived over HTTPS; `always` / `never` force it. Any other value stops the server. Use `always` behind an HTTPS reverse proxy. |
 | `SFCC_SETUP_CODE` | unset | Optional fixed first-run setup code (12–64 letters or digits; dashes and spaces are ignored). Normally leave it unset so a random code is printed. Invalid values stop the server. |
 | `SFCC_TRUST_PROXY` | unset (trust no proxy) | Comma-separated IP addresses or CIDR ranges of the reverse proxies in front of the server (e.g. `172.18.0.0/16`). Only for requests from these addresses are `X-Forwarded-For` (the client address, used for rate limits) and `X-Forwarded-Proto` (HTTPS, used by `SFCC_COOKIE_SECURE=auto`) believed. "Trust everything" values, invalid entries and use with development mode stop the server. |
+| `SFCC_STATIC_DIR` | unset (API only) | Folder with the server build of the app (`npm run build:app` → `dist-app/`), served at `/`. The server refuses to start if it has no `index.html`. Used by the Docker image (see [DOCKER-SERVER.md](DOCKER-SERVER.md)). |
 
 ## Parent accounts, devices and sessions (Stage C)
 
@@ -154,7 +155,7 @@ npm run server:cli -- restore <file> --yes # STOP THE SERVER FIRST
 - Restore verifies the backup first, moves the current database (with its `-wal` and `-shm`) to `backups/replaced-<time>.db`, and never deletes it.
 - **A restore signs everyone out.** Before the restored copy goes live, all sessions, paired devices and pairing codes in it are removed, so a backup can't bring back a session that was signed out, or a device that was unpaired, after it was taken. Afterwards parents sign in again and kiosks are paired again with new codes. Parent accounts are kept, but each password is whatever it was when the backup was taken: if a password was changed since (for example after it leaked), use `reset-password` straight after restoring. The copy is prepared before anything is moved, so a failure leaves the current database untouched.
 - **Never copy a live `chorechart.db` by hand.** Use the backup command.
-- Scheduled daily backups aren't implemented yet (planned for the Compose stage).
+- Scheduled daily backups aren't implemented yet: take them with the `backup` command (for example from a scheduled task on the host).
 
 ## Frontend with the server
 
@@ -192,4 +193,4 @@ Server routes (parent only): `GET /api/export`, `POST /api/import/preview {data}
 
 ## Not done yet (later stages)
 
-Live updates (D); Docker Compose installation, HTTPS guidance and serving the frontend from this server (E). Rate-limit counters are process-local memory only (reset on restart; see *Security measures*). There's no e-mail password reset (by design; use the server command line).
+Live updates (D). A local Docker release candidate (one container serving the app and the API, with a Compose example, HTTPS/cookie guidance, backup/restore and recovery) is described in [DOCKER-SERVER.md](DOCKER-SERVER.md); scheduled backups and a published server image aren't done yet. Rate-limit counters are process-local memory only (reset on restart; see *Security measures*). There's no e-mail password reset (by design; use the server command line).

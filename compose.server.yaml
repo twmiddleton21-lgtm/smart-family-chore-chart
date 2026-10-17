@@ -1,0 +1,48 @@
+# Smart Family Chore Chart: SHARED FAMILY SERVER, minimal Compose file
+# (release candidate). See docs/DOCKER-SERVER.md.
+#
+#   SFCC_SERVER_IMAGE=smart-family-chore-chart-server:rc-<commit> \
+#     docker compose -f compose.server.yaml up -d
+#
+# Deliberately:
+#   - the image tag must be given (SFCC_SERVER_IMAGE): no "latest";
+#   - the port is published on this computer only (127.0.0.1) by default;
+#   - one named volume holds the database and its backups (/data);
+#   - no reverse proxy, tunnel or other services.
+#
+# This file is separate from ./compose.yaml (the published browser-only image).
+
+services:
+  app:
+    image: ${SFCC_SERVER_IMAGE:?Set SFCC_SERVER_IMAGE to the local image tag to run (e.g. smart-family-chore-chart-server:rc-<commit>)}
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    restart: unless-stopped
+    ports:
+      # Host side: this computer only, on SFCC_HOST_PORT (default 3000).
+      # Use "0.0.0.0:${SFCC_HOST_PORT:-3000}:3000" only when you mean to open
+      # it to your network.
+      - "127.0.0.1:${SFCC_HOST_PORT:-3000}:3000"
+    environment:
+      # Household time zone (IANA name), used for "today".
+      SFCC_TIMEZONE: ${SFCC_TIMEZONE:-UTC}
+      # auto: Secure cookies only for HTTPS requests. Direct http://localhost
+      # testing works with auto. Behind an HTTPS reverse proxy use "always",
+      # or list the proxy in SFCC_TRUST_PROXY.
+      SFCC_COOKIE_SECURE: ${SFCC_COOKIE_SECURE:-auto}
+      # Reverse proxies to trust (IP addresses / CIDR ranges); empty = none.
+      SFCC_TRUST_PROXY: ${SFCC_TRUST_PROXY:-}
+    volumes:
+      - chorechart-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s
+
+volumes:
+  chorechart-data:

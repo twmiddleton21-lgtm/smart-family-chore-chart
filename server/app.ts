@@ -199,9 +199,10 @@ export function buildApp(deps: AppDeps): FastifyInstance {
 
   // ---------- health (no family data) ----------
 
-  app.get('/healthz', async () => ({ status: 'ok' }));
+  // Health checks run every few seconds (e.g. the container's): don't log each one.
+  app.get('/healthz', { logLevel: 'warn' }, async () => ({ status: 'ok' }));
 
-  app.get('/readyz', async (request, reply) => {
+  app.get('/readyz', { logLevel: 'warn' }, async (request, reply) => {
     try {
       db.get('SELECT 1 AS ok');
       const schemaVersion = currentSchemaVersion(db);
