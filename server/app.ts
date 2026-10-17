@@ -1,5 +1,6 @@
 import path from 'node:path';
 import cookie from '@fastify/cookie';
+import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyError, type FastifyInstance, type FastifyReply, type FastifyRequest, type FastifyServerOptions } from 'fastify';
 import { safeEqual } from './auth/crypto';
 import { AuthService, publicSessionId, type AuthContext, type AuthError } from './auth/service';
@@ -25,7 +26,7 @@ import type { FamilyStore } from './family/store';
 
 export interface AppDeps {
   config: Pick<ServerConfig, 'devUnauthenticatedApi' | 'bodyLimit' | 'timeZone' | 'port' | 'dataDir'> &
-    Partial<Pick<ServerConfig, 'cookieSecure' | 'trustProxy'>>;
+    Partial<Pick<ServerConfig, 'cookieSecure' | 'trustProxy' | 'staticDir'>>;
   db: SqlDatabase;
   store: FamilyStore;
   /** Required in normal mode (fails closed without it). */
@@ -118,6 +119,10 @@ const idParams = {
 } as const;
 const body = (required: string[], properties: Record<string, unknown>) => ({ type: 'object', additionalProperties: false, required, properties }) as const;
 
+const CONTENT_SECURITY_POLICY =
+  "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; " +
+  "manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
+
 const UNAUTHENTICATED = { error: 'unauthenticated', message: 'Please sign in or pair this device.' };
 const PARENT_REQUIRED = { error: 'parent_required', message: 'A parent needs to sign in for this.' };
 
@@ -169,6 +174,11 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     reply.header('Referrer-Policy', 'no-referrer');
     reply.header('X-Frame-Options', 'DENY');
     reply.header('Cache-Control', 'no-store');
+    // The app loads nothing from other sites (same policy as the static image's nginx).
+    reply.header('Content-Security-Policy', CONTENT_SECURITY_POLICY);
+    reply.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()');
+    reply.header('Cross-Origin-Opener-Policy', 'same-origin');
+    reply.header('Cross-Origin-Resource-Policy', 'same-origin');
     return payload;
   });
 
@@ -489,6 +499,21 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       return { stateVersion: result.stateVersion, backup: path.basename(backup) };
     },
   );
+
+  // ---------- the app itself (production: one server for the app and the API) ----------
+
+  if (config.staticDir) {
+    // Public files only (the app shell has no family data). Never under /api,
+    // never dotfiles; anything not found gets the JSON 404 above.
+    void app.register(fastifyStatic, {
+      root: config.staticDir,
+      prefix: '/',
+      index: ['index.html'],
+      dotfiles: 'deny',
+      decorateReply: false,
+      allowedPath: (pathName) => !pathName.startsWith('/api/') && pathName !== '/api',
+    });
+  }
 
   return app;
 }

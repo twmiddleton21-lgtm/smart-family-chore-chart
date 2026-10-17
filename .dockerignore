@@ -5,6 +5,7 @@
 node_modules
 dist
 dist-server
+dist-app
 data
 test-results
 playwright-report

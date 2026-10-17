@@ -31,6 +31,11 @@ export interface ServerConfig {
    * Secure cookies) believed.
    */
   trustProxy: string[];
+  /**
+   * Folder with the built frontend (server build, `npm run build:app`) to
+   * serve at /. Unset: API only (development, where Vite serves the app).
+   */
+  staticDir?: string;
 }
 
 export class ConfigError extends Error {}
@@ -111,6 +116,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.c
     cookieSecure: parseCookieSecure(env.SFCC_COOKIE_SECURE),
     ...(env.SFCC_SETUP_CODE ? { setupCode: parseSetupCode(env.SFCC_SETUP_CODE) } : {}),
     trustProxy: parseTrustProxy(env.SFCC_TRUST_PROXY),
+    ...(env.SFCC_STATIC_DIR ? { staticDir: path.resolve(cwd, env.SFCC_STATIC_DIR) } : {}),
   };
   assertSafeConfig(config);
   return config;

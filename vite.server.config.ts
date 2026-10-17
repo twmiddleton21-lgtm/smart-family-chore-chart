@@ -4,7 +4,8 @@ import { defineConfig } from 'vite';
 // into dist-server/. Dependencies such as fastify stay external and are
 // installed from package-lock.json; Node built-ins (node:sqlite) are external.
 export default defineConfig({
-  // The server does not serve public/ yet (Stage E); don't copy it.
+  // public/ belongs to the app build (npm run build:app -> dist-app), which
+  // the server serves via SFCC_STATIC_DIR; don't copy it here.
   publicDir: false,
   build: {
     ssr: true,

@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+import path from 'node:path';
 import { buildApp } from './app';
 import { AuthService } from './auth/service';
 import { ConfigError, loadConfig } from './config';
@@ -13,6 +15,9 @@ async function main(): Promise<void> {
   const env = { ...process.env };
   if (process.argv.includes('--dev-unauthenticated-api')) env.SFCC_DEV_UNAUTHENTICATED_API = '1';
   const config = loadConfig(env);
+  if (config.staticDir && !existsSync(path.join(config.staticDir, 'index.html'))) {
+    throw new ConfigError(`SFCC_STATIC_DIR has no index.html: ${config.staticDir}. Build the app with "npm run build:app".`);
+  }
 
   const opened = await openData(config.dataDir, config.timeZone);
   const auth = config.devUnauthenticatedApi ? undefined : new AuthService(opened.db, { setupCode: config.setupCode });
