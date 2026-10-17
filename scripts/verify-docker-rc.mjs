@@ -138,8 +138,18 @@ async function main() {
   );
   const anon = await fetch(`${base}/api/state`);
   check('family data needs sign-in (401) and there is no dev-mode header', anon.status === 401 && !anon.headers.get('x-sfcc-dev-mode'));
-  const rebound = run('docker', ['exec', containerId, 'node', '-e', "fetch('http://127.0.0.1:3000/api/auth/status',{headers:{host:'evil.example'}}).then(r=>console.log(r.status))"]).trim();
+  // fetch() can't set Host (a forbidden header), so use http.request, which sends it as given.
+  const statusFor = (hostHeader) =>
+    run('docker', [
+      'exec',
+      containerId,
+      'node',
+      '-e',
+      `require('http').get({host:'127.0.0.1',port:3000,path:'/api/auth/status',agent:false,headers:{Host:${JSON.stringify(hostHeader)},Connection:'close'}},r=>{console.log(r.statusCode);r.resume()})`,
+    ]).trim();
+  const rebound = statusFor('evil.example');
   check('an unknown host name (DNS rebinding) is refused with 421', rebound === '421', rebound);
+  check('a loopback host name is accepted', statusFor('localhost:3000') === '200');
   const anonStatus = await (await fetch(`${base}/api/auth/status`)).json();
   check('normal mode, setup required', anonStatus.devMode === false && anonStatus.setupRequired === true);
 
