@@ -170,12 +170,12 @@ export class AuthService {
     if (wait) return err(429, 'too_many_attempts', 'Too many sign-in attempts. Please wait and try again.', wait);
     const row = user ? this.db.get<ParentRow & Record<string, unknown>>('SELECT id, username, display_name, password_hash FROM parents WHERE username = ?', user) : undefined;
     const pw = typeof password === 'string' ? password : '';
+    // Count the attempt as a failure BEFORE the (slow, async) hash, so many
+    // concurrent guesses can't all pass the check above; success clears it.
+    for (const k of keys) this.limiter.fail(k);
     // Always run the hash, even for unknown users, so timing doesn't reveal accounts.
     const valid = await verifyPassword(pw, row ? row.password_hash : await dummyPasswordHash());
-    if (!row || !valid || pw === '') {
-      for (const k of keys) this.limiter.fail(k);
-      return err(401, 'invalid_credentials', INVALID_LOGIN);
-    }
+    if (!row || !valid || pw === '') return err(401, 'invalid_credentials', INVALID_LOGIN);
     for (const k of keys) this.limiter.succeed(k);
     this.purgeExpired();
     const parent = { id: row.id, username: row.username, displayName: row.display_name };
@@ -305,10 +305,9 @@ export class AuthService {
     const key = `reauth:parent:${parentId}`;
     const wait = this.limiter.retryAfter(key, LIMITS.login);
     if (wait) return err(429, 'too_many_attempts', 'Too many wrong passwords. Please wait and try again.', wait);
-    if (!(await verifyPassword(typeof password === 'string' ? password : '', hash))) {
-      this.limiter.fail(key);
-      return err(403, 'wrong_password', wrongMessage);
-    }
+    // Counted before the async hash so concurrent guesses can't slip past (see login).
+    this.limiter.fail(key);
+    if (!(await verifyPassword(typeof password === 'string' ? password : '', hash))) return err(403, 'wrong_password', wrongMessage);
     this.limiter.succeed(key);
     return null;
   }

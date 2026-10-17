@@ -422,6 +422,21 @@ describe('parent accounts (equal parents)', () => {
     expect((await post(null, '/api/auth/login', { username: 'sam', password: 'a brand new phrase' })).statusCode).toBe(200);
   });
 
+  it('many guesses sent at once can’t get past the limit (no race while hashing)', async () => {
+    await start();
+    const sam = await setUp();
+    const logins = await Promise.all(Array.from({ length: 20 }, (_, i) => post(null, '/api/auth/login', { username: 'sam', password: `parallel ${i} guess` })));
+    expect(logins.filter((r) => r.statusCode === 401)).toHaveLength(5);
+    expect(logins.filter((r) => r.statusCode === 429)).toHaveLength(15);
+    expect((await post(null, '/api/auth/login', { username: 'sam', password: PASSWORD })).statusCode).toBe(429);
+
+    const changes = await Promise.all(
+      Array.from({ length: 20 }, (_, i) => post(sam, '/api/account/password', { currentPassword: `parallel ${i} guess`, newPassword: 'a brand new phrase' })),
+    );
+    expect(changes.filter((r) => r.statusCode === 403)).toHaveLength(5);
+    expect(changes.filter((r) => r.statusCode === 429)).toHaveLength(15);
+  });
+
   it('re-entering your password (password change, removing a parent) is rate-limited too', async () => {
     await start();
     const sam = await setUp();

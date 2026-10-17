@@ -2,6 +2,8 @@
 // e.g. "login:ip:127.0.0.1" and "login:user:alex". After `max` failures in
 // `windowMs`, further attempts are refused until the window passes. A
 // successful attempt clears the key. Memory is bounded by pruning old keys.
+// Callers that await before knowing the outcome (password hashing) must call
+// fail() BEFORE awaiting and succeed() after, so concurrent attempts count.
 
 export interface Limit {
   max: number;
