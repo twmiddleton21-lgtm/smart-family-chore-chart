@@ -2,7 +2,7 @@
 
 Step-by-step commands for an Ubuntu machine with Docker, for **private testing on your own network** (LAN). Run them in a terminal on that machine (or over SSH).
 
-This is release **0.4.0**: try it with made-up data first. It uses plain HTTP on your LAN, so read [Before you start](#before-you-start).
+This is release **0.5.0**: try it with made-up data first. It uses plain HTTP on your LAN, so read [Before you start](#before-you-start).
 
 Placeholders used below (replace them with your own values):
 
@@ -12,7 +12,7 @@ Placeholders used below (replace them with your own values):
 | `<PORT>` | A free port on that machine for the app | `3080` |
 | `<user>` | Your Ubuntu username (only for SSH) | `alex` |
 
-The release used here is **0.4.0**. The image is `ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart-server:0.4.0`, built for **linux/amd64 (x86_64)** only. The release page lists its exact digest: https://github.com/twmiddleton21-lgtm/smart-family-chore-chart/releases/tag/server-v0.4.0
+The release used here is **0.5.0**. The image is `ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart-server:0.5.0`, built for **linux/amd64 (x86_64)** only. The release page lists its exact digest: https://github.com/twmiddleton21-lgtm/smart-family-chore-chart/releases/tag/server-v0.5.0
 
 ## Before you start
 
@@ -51,17 +51,21 @@ docker ps --format '{{.Names}}\t{{.Ports}}'   # ports used by other containers
 
 ```bash
 mkdir -p ~/sfcc-server && cd ~/sfcc-server
-BASE=https://raw.githubusercontent.com/twmiddleton21-lgtm/smart-family-chore-chart/server-v0.4.0
+BASE=https://raw.githubusercontent.com/twmiddleton21-lgtm/smart-family-chore-chart/server-v0.5.0
 curl -fsSLO "$BASE/compose.server.yaml"
 curl -fsSL "$BASE/.env.example" -o .env
+# Optional, for the Family Calendar (docs/GOOGLE-CALENDAR.md):
+curl -fsSL -O "$BASE/compose.calendar.yaml" -O "$BASE/compose.google-calendar.yaml"
 ```
+
+Updating an existing installation? Don't repeat this step (it would replace your `.env`). Follow [Update to a newer release](#update-to-a-newer-release) instead.
 
 ## 4. Configure
 
 Edit `.env` (for example `nano .env`) and set at least:
 
 ```ini
-SFCC_SERVER_IMAGE=ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart-server:0.4.0
+SFCC_SERVER_IMAGE=ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart-server:0.5.0
 SFCC_BIND_ADDRESS=<LAN-IP>
 SFCC_HOST_PORT=<PORT>
 SFCC_ALLOWED_HOSTS=<LAN-IP>
@@ -81,7 +85,8 @@ docker compose -f compose.server.yaml config --quiet && echo "configuration OK"
 docker compose -p sfcc -f compose.server.yaml up -d
 ```
 
-- The `-p sfcc` project name keeps this installation, and its volume `sfcc_chorechart-data`, separate from your other Compose projects. Use the same `-p sfcc` in every command below.
+- The `-p sfcc` project name keeps this installation, and its volume `sfcc_chorechart-data`, separate from your other Compose projects. Use the same `-p sfcc` in every command below, and in the optional Family Calendar commands ([`GOOGLE-CALENDAR.md`](GOOGLE-CALENDAR.md)).
+- If you add the Family Calendar's add-on files (`-f compose.calendar.yaml`, and `-f compose.google-calendar.yaml`), pass the same `-f` files to every command below too. Above all to `up`: otherwise it recreates the server without the calendar settings, until the next `up` with them.
 - The Compose file never pulls or builds by itself (`pull_policy: never`), so it always runs exactly the image you pulled.
 - If the machine can't reach `ghcr.io`, use the image archive instead ([below](#no-registry-access-load-the-image-archive)).
 
@@ -147,15 +152,87 @@ docker compose -p sfcc -f compose.server.yaml start app
 
 ## Update to a newer release
 
-1. Take a backup (above).
-2. Set `SFCC_SERVER_IMAGE` in `.env` to the new version.
-3. Run:
-   ```bash
-   docker pull "$(grep ^SFCC_SERVER_IMAGE= .env | cut -d= -f2)"
-   docker compose -p sfcc -f compose.server.yaml up -d
-   ```
+Your family's data stays where it is: in the Docker volume `sfcc_chorechart-data`, which the update keeps. These steps update the same installation; you don't start over.
 
-A newer version migrates the database at start-up, after an automatic backup. Keep the old version's tag in case you need to roll back: an older image refuses to open a database written by a newer one, so roll back by restoring the backup.
+**1. Write down what's there now** (in `~/sfcc-server`, while the old version is running). This read-only command prints the family name, each child's points and chores, and the totals. Save the output to compare after the update:
+
+```bash
+cd ~/sfcc-server
+docker compose -p sfcc -f compose.server.yaml exec -T app node -e "const {DatabaseSync}=require('node:sqlite');const db=new DatabaseSync('/data/chorechart.db',{readOnly:true});const s=db.prepare('SELECT version, data FROM family_state WHERE id = 1').get();const f=JSON.parse(s.data);const sum=(xs,id,k)=>xs.filter(x=>x.childId===id).reduce((t,x)=>t+x[k],0);console.log('family:',f.settings.familyName,'| state version',s.version,'| schema',db.prepare('SELECT MAX(version) v FROM schema_migrations').get().v);for(const c of f.children)console.log(' ',c.name,'- points',sum(f.completions,c.id,'points')-sum(f.redemptions,c.id,'cost'),'- chores',f.chores.filter(x=>x.childId===c.id).length);console.log('chores',f.chores.length,'| rewards',f.rewards.length,'| completions',f.completions.length,'| redemptions',f.redemptions.length);" 2>/dev/null | tee family-before-update.txt
+```
+
+**2. Back up, and copy the backup off the volume:**
+
+```bash
+docker compose -p sfcc -f compose.server.yaml exec app node dist-server/cli.js backup before-update
+docker compose -p sfcc -f compose.server.yaml exec app node dist-server/cli.js status   # "backups" lists the files
+docker compose -p sfcc -f compose.server.yaml cp app:/data/backups/<the …-before-update.db file> ./   # keep this copy private
+```
+
+**3. Note the current image** in case you want to go back: `grep ^SFCC_SERVER_IMAGE= .env`.
+
+**4. Switch to the new version and start it.** This changes only the image line in `.env`:
+
+```bash
+sed -i 's|^SFCC_SERVER_IMAGE=.*|SFCC_SERVER_IMAGE=ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart-server:0.5.0|' .env
+grep ^SFCC_SERVER_IMAGE= .env
+docker pull "$(grep ^SFCC_SERVER_IMAGE= .env | cut -d= -f2)"
+docker compose -p sfcc -f compose.server.yaml up -d
+```
+
+**5. Check it:**
+
+```bash
+docker compose -p sfcc -f compose.server.yaml ps                       # STATUS should become "healthy"
+docker compose -p sfcc -f compose.server.yaml logs app | grep -E 'schema migrated|data opened|Refusing'
+curl -s http://<LAN-IP>:<PORT>/readyz; echo                            # {"status":"ready","schemaVersion":4}
+```
+
+Then run the command from step 1 again, with `family-after-update.txt` at the end instead of `family-before-update.txt`. Compare the two files with `diff family-before-update.txt family-after-update.txt`:
+- **The only expected difference** is `schema 2` becoming `schema 4`. The family name, every child's points and chores, and the totals must match.
+- **If the family changed in between** (for example a chore was ticked), the state version and those numbers move with it.
+
+Finally, open the app as usual and check the children and their points.
+
+- **Always `-p sfcc`.** Without it, Compose starts a second, empty installation (see [step 5](#5-get-the-image-and-start)).
+- **With the Family Calendar add-ons:** use the same `-f compose.calendar.yaml` (and `-f compose.google-calendar.yaml`) as when you set them up.
+- **What happens at start-up:**
+  - The new version upgrades the database once, after writing an automatic, verified backup, for example `/data/backups/chorechart-<time>-pre-migration-v2-to-v4.db`.
+  - Upgrades only add tables. Nothing existing is changed or deleted, and if an upgrade can't finish, the database stays as it was.
+- **Everything is kept:** children, chores, points history, rewards, meals and settings, parent accounts and passwords. Parents and paired kiosks stay signed in.
+- **Nothing else changes:** your `.env` (apart from the image line), the calendar key in `secrets/`, the port, host names and anything in front of the server (reverse proxy, tunnel) stay as they are.
+- **How this was tested (0.4.0 → 0.5.0):**
+  - **Verified:** the upgrade of a database made by 0.4.0, the start-up of the built server on it, failure and interruption during the upgrade, and both ways back. All on copies, with made-up data.
+  - **Not yet verified:** the same update with the published Docker image on a real Docker volume. Take the backup in step 2 and keep the copy outside the volume.
+- **The Family Calendar is optional.** It stays off after the update. To add it later, follow [GOOGLE-CALENDAR.md](GOOGLE-CALENDAR.md).
+
+### Going back to the previous version
+
+An older image refuses to open a database upgraded by a newer one. That protects the data rather than risking it. To go back, stop the app and use **one** of these:
+
+**A. Restore the automatic pre-migration backup.** This returns everything to the moment before the update: changes made since are lost, everyone signs in again, and kiosks are paired again. The upgraded database is kept at `/data/backups/replaced-<time>.db`.
+
+```bash
+docker compose -p sfcc -f compose.server.yaml stop app
+sed -i 's|^SFCC_SERVER_IMAGE=.*|SFCC_SERVER_IMAGE=ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart-server:0.4.0|' .env
+docker compose -p sfcc -f compose.server.yaml run --rm app node dist-server/cli.js restore /data/backups/<the pre-migration-…db file> --yes
+docker compose -p sfcc -f compose.server.yaml up -d
+```
+
+**B. Keep today's data, remove only the calendar tables (0.5.0 → 0.4.0).** This keeps everything else as it is now, including sign-ins; only the family calendar connection is lost. Take a backup first (step 1), then:
+
+```bash
+docker compose -p sfcc -f compose.server.yaml stop app
+docker compose -p sfcc -f compose.server.yaml run --rm --no-deps app node -e "
+const { DatabaseSync } = require('node:sqlite');
+const db = new DatabaseSync('/data/chorechart.db');
+db.exec('BEGIN; DROP TRIGGER one_calendar_connection_ical; DROP TRIGGER one_calendar_connection_google; DROP TABLE ical_feed_connection; DELETE FROM schema_migrations WHERE version = 4; DROP TABLE google_calendar_connection; DELETE FROM schema_migrations WHERE version = 3; COMMIT;');
+db.close();"
+sed -i 's|^SFCC_SERVER_IMAGE=.*|SFCC_SERVER_IMAGE=ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart-server:0.4.0|' .env
+docker compose -p sfcc -f compose.server.yaml up -d
+```
+
+Never use `docker compose … down -v` or `docker volume rm` to go back: they delete the family's data.
 
 ## Stop, start and uninstall
 
@@ -163,7 +240,7 @@ A newer version migrates the database at start-up, after an automatic backup. Ke
 docker compose -p sfcc -f compose.server.yaml stop        # stop (keeps everything)
 docker compose -p sfcc -f compose.server.yaml start       # start again
 docker compose -p sfcc -f compose.server.yaml down        # remove the container; KEEPS the data volume
-docker image rm ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart-server:0.4.0   # optional
+docker image rm ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart-server:0.5.0   # optional
 ```
 
 `down` (without `-v`) never deletes the database. Starting it again with `up -d` brings the same data back.
@@ -177,15 +254,15 @@ docker volume rm sfcc_chorechart-data
 
 ## No registry access: load the image archive
 
-The release page has `smart-family-chore-chart-server-0.4.0-linux-amd64.tar.gz` and its `.sha256`.
+The release page has `smart-family-chore-chart-server-0.5.0-linux-amd64.tar.gz` and its `.sha256`.
 
 ```bash
 cd ~/sfcc-server
-REL=https://github.com/twmiddleton21-lgtm/smart-family-chore-chart/releases/download/server-v0.4.0
-curl -fLO "$REL/smart-family-chore-chart-server-0.4.0-linux-amd64.tar.gz"
-curl -fLO "$REL/smart-family-chore-chart-server-0.4.0-linux-amd64.tar.gz.sha256"
-sha256sum -c smart-family-chore-chart-server-0.4.0-linux-amd64.tar.gz.sha256
-docker load -i smart-family-chore-chart-server-0.4.0-linux-amd64.tar.gz
+REL=https://github.com/twmiddleton21-lgtm/smart-family-chore-chart/releases/download/server-v0.5.0
+curl -fLO "$REL/smart-family-chore-chart-server-0.5.0-linux-amd64.tar.gz"
+curl -fLO "$REL/smart-family-chore-chart-server-0.5.0-linux-amd64.tar.gz.sha256"
+sha256sum -c smart-family-chore-chart-server-0.5.0-linux-amd64.tar.gz.sha256
+docker load -i smart-family-chore-chart-server-0.5.0-linux-amd64.tar.gz
 ```
 
 Then continue with step 5, skipping `docker pull`. You can also copy the archive to the machine any other way, for example with `scp` from another computer. [DOCKER-TRANSFER.md](DOCKER-TRANSFER.md) describes moving a locally built image.

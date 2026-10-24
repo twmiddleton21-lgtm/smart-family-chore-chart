@@ -108,7 +108,43 @@ textarea {
 
 button {
   cursor: pointer;
+}
+
+/* Controls: taps respond at once (no double-tap-to-zoom wait), and a finger
+   drag that starts on one still scrolls the page natively. */
+button,
+a,
+label,
+select,
+input,
+summary {
   touch-action: manipulation;
+}
+
+/* ---------- Scrolling (touchscreen kiosks) ----------
+   Every page and panel scrolls natively (finger drag, wheel, keyboard);
+   only the scrollbars are hidden. */
+html {
+  /* No pull-to-refresh or rubber-band bounce: an accidental reload on a
+     kiosk would sign a parent out. */
+  overscroll-behavior-y: none;
+}
+* {
+  scrollbar-width: none;
+}
+*::-webkit-scrollbar {
+  display: none;
+}
+
+/* Opt-in fallback for touchscreens the browser reports as a mouse (see
+   lib/dragScroll.ts): dragging scrolls instead of selecting text. */
+html.drag-scroll body {
+  user-select: none;
+  -webkit-user-select: none;
+}
+html.drag-scroll :is(input, textarea, [contenteditable='true']) {
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 button:disabled {

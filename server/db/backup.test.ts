@@ -178,7 +178,7 @@ describe('backups', () => {
     restoreBackup(backupFile, dbFile);
     const { db, migrated } = await openData(tmp.dir, 'UTC');
     try {
-      expect(migrated).toEqual([2]);
+      expect(migrated).toEqual([2, 3, 4]);
       expect(new AuthService(db).isSetupRequired()).toBe(true);
     } finally {
       db.close();

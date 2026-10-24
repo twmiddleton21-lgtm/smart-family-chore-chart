@@ -39,3 +39,6 @@ docker-compose*.yml
 docs
 README.md
 .nvmrc
+
+# Server secrets: never in an image build context
+secrets

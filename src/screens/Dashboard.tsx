@@ -11,9 +11,11 @@ interface DashboardProps {
   today: DateKey;
   onSelectChild: (child: Child) => void;
   onOpenParent: () => void;
+  /** Opens the family calendar; omitted where there is none (browser-only builds). */
+  onOpenCalendar?: () => void;
 }
 
-export function Dashboard({ data, today, onSelectChild, onOpenParent }: DashboardProps) {
+export function Dashboard({ data, today, onSelectChild, onOpenParent, onOpenCalendar }: DashboardProps) {
   const progress = data.children.map((child) => childProgress(data, child.id, today));
   const familyDone = progress.reduce((sum, p) => sum + p.done, 0);
   const familyTotal = progress.reduce((sum, p) => sum + p.total, 0);
@@ -27,9 +29,16 @@ export function Dashboard({ data, today, onSelectChild, onOpenParent }: Dashboar
           </span>
           <span className="brand-name">Smart Family Chore Chart</span>
         </div>
-        <button type="button" className="button button-ghost" onClick={onOpenParent}>
-          <span aria-hidden="true">🔒</span> Parent area
-        </button>
+        <div className="topbar-actions">
+          {onOpenCalendar && (
+            <button type="button" className="button button-calendar" onClick={onOpenCalendar}>
+              <span aria-hidden="true">📅</span> Family Calendar
+            </button>
+          )}
+          <button type="button" className="button button-ghost" onClick={onOpenParent}>
+            <span aria-hidden="true">🔒</span> Parent area
+          </button>
+        </div>
       </header>
 
       <Clock familyName={data.settings.familyName} />

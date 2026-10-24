@@ -4,7 +4,9 @@ import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyError, type FastifyInstance, type FastifyReply, type FastifyRequest, type FastifyServerOptions } from 'fastify';
 import { safeEqual } from './auth/crypto';
 import { AuthService, publicSessionId, type AuthContext, type AuthError } from './auth/service';
-import { parseHostHeader, type ServerConfig } from './config';
+import { GOOGLE_CALLBACK_PATH, parseHostHeader, type ServerConfig } from './config';
+import { CalendarService, requestedRange } from './calendar/calendar';
+import type { FamilyCalendar, FamilyCalendarError } from './calendar/familyCalendar';
 import { createBackup } from './db/backup';
 import type { SqlDatabase } from './db/database';
 import { currentSchemaVersion, LATEST_SCHEMA_VERSION } from './db/migrations';
@@ -31,6 +33,10 @@ export interface AppDeps {
   store: FamilyStore;
   /** Required in normal mode (fails closed without it). */
   auth?: AuthService;
+  /** The family's Google Calendar connection (Settings → Integrations). */
+  familyCalendar?: FamilyCalendar;
+  /** Events for the Family Calendar page; defaults to familyCalendar's (a development fixture can replace them). */
+  calendar?: CalendarService;
   logger?: FastifyServerOptions['logger'];
 }
 
@@ -39,6 +45,28 @@ export const DEVICE_COMMANDS: ReadonlySet<CommandType> = new Set(['toggleChore',
 
 export const PARENT_COOKIE = 'sfcc_parent';
 export const DEVICE_COOKIE = 'sfcc_device';
+/**
+ * Binds a Google "Connect" to the browser that started it. SameSite=Lax
+ * (not Strict) because it must come back on Google's top-level redirect,
+ * and only sent to the callback path.
+ */
+export const GOOGLE_OAUTH_COOKIE = 'sfcc_google_oauth';
+
+/**
+ * Request log entries without query strings: Google's callback carries a
+ * one-time code and state in the query, which must never reach the logs.
+ */
+function logRequest(request: FastifyRequest) {
+  const url = request.url ?? '';
+  const q = url.indexOf('?');
+  return { method: request.method, url: q === -1 ? url : `${url.slice(0, q)}?[redacted]`, remoteAddress: request.ip };
+}
+
+function withLogRedaction(logger: FastifyServerOptions['logger']): FastifyServerOptions['logger'] {
+  if (!logger) return false;
+  const base = logger === true ? {} : (logger as Record<string, unknown>);
+  return { ...base, serializers: { ...((base.serializers as object) ?? {}), req: logRequest } } as FastifyServerOptions['logger'];
+}
 
 const LOOPBACK_ADDRESSES = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 
@@ -162,7 +190,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   const auth = deps.auth;
 
   const app = Fastify({
-    logger: deps.logger ?? false,
+    logger: withLogRedaction(deps.logger ?? false),
     bodyLimit: config.bodyLimit,
     // Only the configured reverse proxies (SFCC_TRUST_PROXY) are believed
     // about the client address and protocol; nobody by default.
@@ -525,6 +553,146 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       return { stateVersion: result.stateVersion, backup: path.basename(backup) };
     },
   );
+
+  // ---------- family calendar (read-only) ----------
+
+  // Household only, like the family data: every signed-in parent and paired
+  // device sees the family's one connection (Google OAuth or an iCal
+  // address). Credentials and the address never leave the server; problems
+  // with the provider are reported in the body (status "error") so the app
+  // can tell them apart from this server being down.
+  const family = deps.familyCalendar ?? null;
+  const calendar = deps.calendar ?? family?.events ?? CalendarService.fixed(null, config.timeZone);
+  // Optional ?start=&end= (a month view's weeks); without them, today and the next six days.
+  app.get('/api/calendar', { preParsing: requireHousehold }, async (request, reply) => {
+    const range = requestedRange(request.query, calendar.today());
+    if (range === 'invalid') return reply.status(400).send({ error: 'invalid_range', message: 'Ask for at most 42 days, within about a year of today.' });
+    return calendar.upcoming(range ?? undefined);
+  });
+
+  // Settings → Family calendar: parents only.
+  const sendProblem = (reply: FastifyReply, e: FamilyCalendarError) => {
+    if (e.retryAfter) void reply.header('Retry-After', String(e.retryAfter));
+    return reply.status(e.status).send({ error: e.error, message: e.message, ...(e.replaces ? { replaces: e.replaces } : {}) });
+  };
+  const NOT_CONFIGURED = { ok: false as const, status: 409, error: 'not_configured', message: 'The family calendar isn’t set up on this family server yet.' };
+  const parentIdOf = (request: FastifyRequest) => (dev ? null : ctxOf(request).parent!.id);
+
+  app.get('/api/calendar/connection', { preParsing: requireParent }, async () =>
+    family
+      ? family.status()
+      : {
+          google: { available: false, missing: [], connectOrigin: null },
+          ical: { available: false, missing: ['SFCC_SECRET_KEY_FILE'], extraHosts: [] },
+          connection: null,
+          refresh: { lastSuccessAt: null, lastError: null, lastErrorDetail: null },
+        },
+  );
+
+  app.post<{ Body: { appOrigin: string; replace?: boolean } }>(
+    '/api/calendar/google/connect',
+    { preParsing: requireParent, schema: { body: body(['appOrigin'], { appOrigin: str(300), replace: { type: 'boolean' } }) } },
+    async (request, reply) => {
+      if (!family) return sendProblem(reply, NOT_CONFIGURED);
+      const { connectOrigin } = family.status().google;
+      // Google sends the parent back to the redirect URI's address; the
+      // browser-binding cookie only exists there, so start from there too.
+      if (connectOrigin && request.body.appOrigin !== connectOrigin) {
+        return reply.status(409).send({ error: 'wrong_address', message: `Open the app at ${connectOrigin} to connect Google Calendar.`, connectOrigin });
+      }
+      const started = family.startConnect(parentIdOf(request), request.body.replace === true);
+      if ('ok' in started) return sendProblem(reply, started);
+      void reply.setCookie(GOOGLE_OAUTH_COOKIE, started.browserNonce, {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: GOOGLE_CALLBACK_PATH,
+        maxAge: 600,
+        secure: connectOrigin?.startsWith('https:') ?? false,
+      });
+      return { authorizationUrl: started.authorizationUrl };
+    },
+  );
+
+  // Google's redirect back (a top-level GET from accounts.google.com, so the
+  // SameSite=Strict parent cookie is NOT sent). Authorised instead by the
+  // single-use state, which records the parent who started, plus the
+  // browser-binding cookie. Always answers with a redirect into the app.
+  app.get<{ Querystring: Record<string, string | undefined> }>(
+    GOOGLE_CALLBACK_PATH,
+    {
+      schema: {
+        querystring: {
+          type: 'object',
+          additionalProperties: { type: 'string', maxLength: 4096 },
+          properties: { code: str(4096), state: str(256), error: str(256) },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { code, state, error } = request.query;
+      const result = family
+        ? await family.completeConnect({ code, state, error, browserNonce: request.cookies[GOOGLE_OAUTH_COOKIE] })
+        : 'not_configured';
+      void reply.clearCookie(GOOGLE_OAUTH_COOKIE, { httpOnly: true, sameSite: 'lax', path: GOOGLE_CALLBACK_PATH });
+      request.log.info({ result }, 'Google Calendar connect finished');
+      return reply.redirect(`/#google-calendar=${result}`, 303);
+    },
+  );
+
+  app.get('/api/calendar/google/calendars', { preParsing: requireParent }, async (_request, reply) => {
+    if (!family) return sendProblem(reply, NOT_CONFIGURED);
+    const r = await family.listCalendars();
+    return r.ok ? { calendars: r.calendars } : sendProblem(reply, r);
+  });
+
+  app.post<{ Body: { calendarId: string } }>(
+    '/api/calendar/google/calendar',
+    { preParsing: requireParent, schema: { body: body(['calendarId'], { calendarId: { type: 'string', minLength: 1, maxLength: 256 } }) } },
+    async (request, reply) => {
+      if (!family) return sendProblem(reply, NOT_CONFIGURED);
+      const r = await family.selectCalendar(request.body.calendarId);
+      return r.ok ? { ok: true } : sendProblem(reply, r);
+    },
+  );
+
+  app.post('/api/calendar/google/disconnect', { preParsing: requireParent }, async (request) => {
+    if (!family) return { ok: true, wasConnected: false, revokedAtGoogle: false };
+    const r = await family.disconnect();
+    request.log.info({ wasConnected: r.wasConnected, revokedAtGoogle: r.revokedAtGoogle }, 'Google Calendar disconnected');
+    return r;
+  });
+
+  // Private iCal address: check it (nothing changes yet), then use it.
+  // The address is only ever in the check request's body: it is never
+  // logged, echoed in an error, or sent back afterwards.
+  app.post<{ Body: { url: string } }>(
+    '/api/calendar/ical/check',
+    { preParsing: requireParent, schema: { body: body(['url'], { url: { type: 'string', minLength: 1, maxLength: 2048 } }) } },
+    async (request, reply) => {
+      if (!family) return sendProblem(reply, NOT_CONFIGURED);
+      const r = await family.checkFeed(request.body.url, parentIdOf(request));
+      request.log.info({ result: r.ok ? 'ok' : r.error, ...(r.ok ? { host: r.host } : {}) }, 'calendar address checked');
+      return r.ok ? r : sendProblem(reply, r);
+    },
+  );
+
+  app.post<{ Body: { checkId: string; replace?: boolean } }>(
+    '/api/calendar/ical/use',
+    { preParsing: requireParent, schema: { body: body(['checkId'], { checkId: { type: 'string', minLength: 1, maxLength: 100 }, replace: { type: 'boolean' } }) } },
+    async (request, reply) => {
+      if (!family) return sendProblem(reply, NOT_CONFIGURED);
+      const r = await family.useFeed(request.body.checkId, parentIdOf(request), request.body.replace === true);
+      if (r.ok) request.log.info({ replaced: r.replaced, revokedAtGoogle: r.revokedAtGoogle }, 'calendar address connected');
+      return r.ok ? r : sendProblem(reply, r);
+    },
+  );
+
+  app.post('/api/calendar/ical/disconnect', { preParsing: requireParent }, async (request) => {
+    if (!family) return { ok: true, wasConnected: false };
+    const r = family.disconnectFeed();
+    request.log.info({ wasConnected: r.wasConnected }, 'calendar address disconnected');
+    return r;
+  });
 
   // ---------- the app itself (production: one server for the app and the API) ----------
 

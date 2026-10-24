@@ -25,7 +25,7 @@ describe('schema migrations', () => {
       expect(currentSchemaVersion(db)).toBe(0);
       expect(runMigrations(db)).toEqual(MIGRATIONS.map((m) => m.version));
       expect(currentSchemaVersion(db)).toBe(LATEST_SCHEMA_VERSION);
-      expect(tables(db)).toEqual(['command_log', 'devices', 'family_state', 'pairing_codes', 'parents', 'record_versions', 'schema_migrations', 'sessions']);
+      expect(tables(db)).toEqual(['command_log', 'devices', 'family_state', 'google_calendar_connection', 'ical_feed_connection', 'pairing_codes', 'parents', 'record_versions', 'schema_migrations', 'sessions']);
     } finally {
       db.close();
     }
@@ -105,11 +105,91 @@ describe('schema migrations', () => {
 
     const upgraded = await openData(tmp.dir, 'UTC');
     try {
-      expect(upgraded.migrated).toEqual([2]);
-      expect(upgraded.preMigrationBackup).toMatch(/pre-migration-v1-to-v2\.db$/);
+      expect(upgraded.migrated).toEqual([2, 3, 4]);
+      expect(upgraded.preMigrationBackup).toMatch(/pre-migration-v1-to-v4\.db$/);
       expect(upgraded.store.read()).toEqual(before);
       expect(upgraded.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM parents')!.n).toBe(0);
-      expect(currentSchemaVersion(upgraded.db)).toBe(2);
+      expect(currentSchemaVersion(upgraded.db)).toBe(4);
+    } finally {
+      upgraded.db.close();
+    }
+  });
+
+  it('upgrades a v0.4.0 (schema v2) database to v4: family, parents, sessions and devices kept; no calendar connection', async () => {
+    const v2 = openDatabase(path.join(tmp.dir, 'chorechart.db'));
+    runMigrations(v2, MIGRATIONS.slice(0, 2));
+    const { FamilyStore } = await import('../family/store');
+    const oldStore = new FamilyStore(v2, { timeZone: 'UTC' });
+    oldStore.initialize();
+    oldStore.apply({ type: 'loadDemoFamily', payload: {} }, 'test');
+    v2.run("INSERT INTO parents (id, username, display_name, password_hash, created_at, password_changed_at) VALUES ('p1', 'sam', 'Sam', 'x', 't', 't')");
+    v2.run("INSERT INTO devices (id, name, created_by, created_at) VALUES ('d1', 'Kitchen', 'p1', 't')");
+    const before = { family: oldStore.read(), parents: v2.all('SELECT * FROM parents'), devices: v2.all('SELECT * FROM devices') };
+    v2.close();
+
+    const upgraded = await openData(tmp.dir, 'UTC');
+    try {
+      expect(upgraded.migrated).toEqual([3, 4]);
+      expect(upgraded.preMigrationBackup).toMatch(/pre-migration-v2-to-v4\.db$/);
+      expect(upgraded.store.read()).toEqual(before.family);
+      expect(upgraded.db.all('SELECT * FROM parents')).toEqual(before.parents);
+      expect(upgraded.db.all('SELECT * FROM devices')).toEqual(before.devices);
+      expect(upgraded.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM google_calendar_connection')!.n).toBe(0);
+    } finally {
+      upgraded.db.close();
+    }
+  });
+
+  it('allows at most one family calendar connection per installation', () => {
+    const db = openDatabase(path.join(tmp.dir, 'a.db'));
+    try {
+      runMigrations(db);
+      const insert = (id: number) =>
+        db.run(
+          "INSERT INTO google_calendar_connection (id, account_email, refresh_token_enc, key_id, scope, calendar_id, calendar_name, status, connected_at, updated_at) VALUES (?, 'a', 'x', 'k', 's', 'c', 'n', 'connected', 't', 't')",
+          id,
+        );
+      insert(1);
+      expect(() => insert(2)).toThrow();
+      // …and never a Google connection and an iCal feed at the same time (v4 triggers).
+      const insertFeed = () =>
+        db.run(
+          "INSERT INTO ical_feed_connection (id, url_enc, key_id, provider, host, calendar_name, connected_at, updated_at) VALUES (1, 'x', 'k', 'google', 'calendar.google.com', 'n', 't', 't')",
+        );
+      expect(insertFeed).toThrow(/already has a Google Calendar connection/);
+      db.run('DELETE FROM google_calendar_connection');
+      insertFeed();
+      expect(() => insert(1)).toThrow(/already has an iCal feed connection/);
+      expect(() => insertFeed()).toThrow(); // still one feed at most
+    } finally {
+      db.close();
+    }
+  });
+
+  it('upgrades a schema v3 database to v4 keeping its Google Calendar connection exactly', async () => {
+    const v3 = openDatabase(path.join(tmp.dir, 'chorechart.db'));
+    runMigrations(v3, MIGRATIONS.slice(0, 3));
+    const { FamilyStore } = await import('../family/store');
+    new FamilyStore(v3, { timeZone: 'UTC' }).initialize();
+    v3.run(
+      "INSERT INTO google_calendar_connection (id, account_email, refresh_token_enc, key_id, scope, calendar_id, calendar_name, status, connected_at, updated_at) VALUES (1, 'family@example.test', 'v1.sealed', 'k1', 's', 'family@example.test', 'Family', 'connected', '2026-10-24T08:00:00.000Z', '2026-10-24T08:00:00.000Z')",
+    );
+    const before = v3.all('SELECT * FROM google_calendar_connection');
+    v3.close();
+
+    const upgraded = await openData(tmp.dir, 'UTC');
+    try {
+      expect(upgraded.migrated).toEqual([4]);
+      expect(upgraded.preMigrationBackup).toMatch(/pre-migration-v3-to-v4\.db$/);
+      expect(upgraded.db.all('SELECT * FROM google_calendar_connection')).toEqual(before);
+      expect(upgraded.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM ical_feed_connection')!.n).toBe(0);
+      const backup = openDatabase(upgraded.preMigrationBackup!, { readOnly: true });
+      try {
+        expect(currentSchemaVersion(backup)).toBe(3);
+        expect(backup.all('SELECT * FROM google_calendar_connection')).toEqual(before);
+      } finally {
+        backup.close();
+      }
     } finally {
       upgraded.db.close();
     }

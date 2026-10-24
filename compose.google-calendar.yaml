@@ -1,0 +1,33 @@
+# OPTIONAL add-on: Google Calendar sign-in (OAuth) for the Family Calendar,
+# on top of compose.calendar.yaml (which holds the secret key both methods
+# need). Guide: docs/GOOGLE-CALENDAR.md.
+#
+#   docker compose -p sfcc -f compose.server.yaml -f compose.calendar.yaml -f compose.google-calendar.yaml up -d
+#
+# (-p sfcc: the installation's project name, see compose.calendar.yaml.) Or
+# put these two lines in .env once, and plain "docker compose up -d" uses the
+# same project and all three files (a -f on the command line overrides them):
+#   COMPOSE_PROJECT_NAME=sfcc
+#   COMPOSE_FILE=compose.server.yaml:compose.calendar.yaml:compose.google-calendar.yaml
+#
+# The OAuth client is your own, created in your own Google Cloud project; no
+# central service is involved. Its secret is a file on this machine, mounted
+# read-only at /run/secrets; it is never in .env, the image or the repository:
+#   ./secrets/google-client-secret.txt   the OAuth client secret from Google Cloud
+# The container runs as uid 1000, so: sudo chown 1000:1000 secrets/*.txt && sudo chmod 400 secrets/*.txt
+
+services:
+  app:
+    environment:
+      # OAuth client ID ("…apps.googleusercontent.com"): not a secret.
+      SFCC_GOOGLE_CLIENT_ID: ${SFCC_GOOGLE_CLIENT_ID:?Set SFCC_GOOGLE_CLIENT_ID (see docs/GOOGLE-CALENDAR.md)}
+      # Exactly as registered in Google Cloud. HTTPS (or http://localhost:<port>),
+      # ending in /api/calendar/google/callback. Its host must be in SFCC_ALLOWED_HOSTS.
+      SFCC_GOOGLE_REDIRECT_URI: ${SFCC_GOOGLE_REDIRECT_URI:?Set SFCC_GOOGLE_REDIRECT_URI (see docs/GOOGLE-CALENDAR.md)}
+      SFCC_GOOGLE_CLIENT_SECRET_FILE: /run/secrets/google_client_secret
+    secrets:
+      - google_client_secret
+
+secrets:
+  google_client_secret:
+    file: ${SFCC_GOOGLE_CLIENT_SECRET_PATH:-./secrets/google-client-secret.txt}

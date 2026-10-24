@@ -18,3 +18,6 @@ coverage
 *.local
 *.pem
 *.key
+
+# Server secrets (Google client secret, encryption key): never commit
+secrets/

@@ -369,32 +369,32 @@
   }
   .dashboard .profile-list {
     flex: 1;
-    grid-auto-rows: minmax(10rem, 1fr);
-    max-height: 60rem;
+    grid-auto-rows: minmax(8.5rem, 1fr);
+    max-height: 46rem;
   }
   .dashboard .profile-card {
     height: 100%;
-    padding: 2rem 2.5rem;
+    padding: 1.5rem 2rem;
   }
   .dashboard .avatar-xl {
-    width: 10rem;
-    height: 10rem;
-    font-size: 6rem;
+    width: 8rem;
+    height: 8rem;
+    font-size: 4.75rem;
     border-width: 6px;
   }
   .dashboard .profile-name {
-    font-size: 3.5rem;
+    font-size: 2.75rem;
   }
   .dashboard .profile-stats {
-    font-size: 1.4rem;
+    font-size: 1.3rem;
   }
   .dashboard .profile-card .progress {
     height: 1.25rem;
   }
   .dashboard .profile-go {
-    width: 5rem;
-    height: 5rem;
-    font-size: 2.25rem;
+    width: 4.25rem;
+    height: 4.25rem;
+    font-size: 2rem;
   }
   .clock-card {
     padding-block: 3.5rem;
@@ -451,7 +451,10 @@
     font-size: 1.4rem;
     padding: 0.4rem 0.9rem;
   }
+  /* One chore per row: each long name gets the full width instead of a
+     narrow half-width column. */
   .chore-list {
+    grid-template-columns: 1fr;
     gap: 1.1rem;
     padding: 1.25rem;
   }
@@ -523,13 +526,6 @@
     align-items: baseline;
     justify-content: center;
     gap: 0.5rem;
-  }
-  .chore {
-    grid-template-columns: auto auto 1fr;
-  }
-  .chore-points {
-    grid-column: 3;
-    justify-self: start;
   }
   .admin-row {
     grid-template-columns: auto 1fr;
@@ -724,6 +720,7 @@
 .usage-list {
   max-height: 14rem;
   overflow: auto;
+  overscroll-behavior: contain;
 }
 
 @media (max-width: 600px) {
@@ -754,7 +751,7 @@
   }
 }
 
-/* ---------- Family server (development build) ---------- */
+/* ---------- Family server in development mode (no sign-in) warning ---------- */
 
 .banner-dev {
   background: #ede7ff;
@@ -901,4 +898,599 @@
   font-size: 2rem;
   font-weight: 800;
   letter-spacing: 0.15em;
+}
+
+/* ---------- Family calendar (read-only) ---------- */
+
+.topbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+.button-calendar {
+  background: var(--teal);
+  color: #04332e;
+  box-shadow: var(--shadow-sm);
+  font-size: 1.1rem;
+}
+.button-calendar:hover:not(:disabled) {
+  background: #24a598;
+}
+/* The page: a full-width month, like a calendar app. On screens tall and
+   wide enough, the page is exactly the window's height and the grid takes
+   all the space below the toolbar; elsewhere it scrolls normally. */
+.calendar-screen {
+  --cal-line: #dadce0;
+  --cal-muted: #70757a;
+  --cal-ink: #3c4043;
+  --cal-hover: #f1f3f4;
+  max-width: none;
+  gap: 0.75rem;
+  padding-top: clamp(0.75rem, 1.5vw, 1.25rem);
+  padding-bottom: clamp(0.75rem, 1.5vw, 1.25rem);
+}
+@media (min-width: 700px) and (min-height: 600px) {
+  .app:has(.calendar-screen) {
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+    min-height: 0;
+  }
+  .calendar-screen {
+    flex: 1;
+    min-height: 0;
+  }
+}
+
+/* Three columns, the outer two always equal, so the month in the middle is
+   truly centred whatever is either side. Narrower screens: two rows, the
+   month centred on the second. */
+.calendar-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-areas: 'start nav end';
+  align-items: center;
+  gap: 0.5rem 1rem;
+}
+.calendar-toolbar-start {
+  grid-area: start;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  min-width: 0;
+}
+/* Beside each other where there's room: the calendar's name wraps under the title instead. */
+@media (min-width: 641px) {
+  .calendar-toolbar-start {
+    flex-wrap: nowrap;
+  }
+  .calendar-back {
+    flex: none;
+  }
+}
+@media (max-width: 1100px) {
+  .calendar-toolbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'start end'
+      'nav nav';
+  }
+}
+.calendar-back,
+.calendar-today-button {
+  min-height: 2.5rem;
+  padding-block: 0.4rem;
+}
+.calendar-refresh {
+  font-family: var(--font-emoji);
+  font-size: 1.15rem;
+}
+.calendar-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.calendar-brand-icon {
+  font-family: var(--font-emoji);
+  font-size: 1.8rem;
+  line-height: 1;
+}
+.calendar-brand-text {
+  display: grid;
+  min-width: 0;
+}
+.screen-title.calendar-brand-title {
+  font-size: 1.25rem;
+  line-height: 1.2;
+}
+/* ‹ Month Year › */
+.calendar-nav {
+  grid-area: nav;
+  justify-self: center;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.calendar-step {
+  font-size: 1.6rem;
+  line-height: 1;
+}
+.calendar-month-title {
+  margin-inline: 0.4rem;
+  font-size: clamp(1.4rem, 1rem + 1.2vw, 2.1rem);
+  font-weight: 800;
+  color: var(--ink);
+  text-align: center;
+  white-space: nowrap;
+}
+/* Today and Refresh. */
+.calendar-toolbar-end {
+  grid-area: end;
+  justify-self: end;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem 0.75rem;
+}
+/* Under the page title: which calendar, and where it comes from. */
+.calendar-source {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 0.4rem;
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.calendar-source strong {
+  color: var(--ink);
+}
+.calendar-source span::before {
+  content: '· ';
+}
+.calendar-loading {
+  color: var(--ink-soft);
+  font-weight: 700;
+}
+.calendar-note {
+  border-radius: var(--radius);
+}
+.calendar-status {
+  justify-self: center;
+  align-self: center;
+  width: min(100%, 36rem);
+}
+.calendar-status-title {
+  font-size: 1.4rem;
+  font-weight: 900;
+}
+
+/* ---------- the month grid ---------- */
+
+.month-grid {
+  /* Read by the page's script to work out how many events fit in a day. */
+  --month-row: 1.45rem;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid var(--cal-line);
+  border-radius: var(--radius);
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  color: var(--cal-ink);
+}
+.month-weekdays,
+.month-week {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+.month-weekdays {
+  border-bottom: 1px solid var(--cal-line);
+}
+.month-weekday {
+  padding: 0.45rem 0.25rem 0.35rem;
+  text-align: center;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cal-muted);
+}
+.month-weekday abbr {
+  text-decoration: none;
+}
+.month-body {
+  display: grid;
+  flex: 1;
+  grid-template-rows: repeat(var(--month-weeks, 5), minmax(5rem, 1fr));
+  min-height: 0;
+}
+.month-week + .month-week {
+  border-top: 1px solid var(--cal-line);
+}
+.month-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  min-height: 0;
+  padding: 0.2rem 0.25rem 0.3rem;
+  overflow: hidden;
+}
+.month-cell + .month-cell {
+  border-left: 1px solid var(--cal-line);
+}
+.month-cell-outside {
+  background: #fafafb;
+}
+.month-cell-today {
+  background: #f7f4ff;
+}
+.month-date {
+  align-self: center;
+  min-width: 1.85rem;
+  height: 1.85rem;
+  margin-bottom: 0.15rem;
+  padding: 0 0.45rem;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--cal-ink);
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.month-date:hover {
+  background: var(--cal-hover);
+}
+.month-cell-outside .month-date {
+  color: var(--cal-muted);
+  font-weight: 600;
+}
+.month-cell-today .month-date {
+  background: var(--primary);
+  color: var(--primary-ink);
+}
+
+.month-events {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+/* Without this a long title widens its row past the cell, and is cut off instead of ending in "…". */
+.month-events > li {
+  min-width: 0;
+}
+.month-event {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  width: 100%;
+  height: calc(var(--month-row) - 2px);
+  padding: 0 0.4rem;
+  border: 0;
+  border-radius: 0.35rem;
+  background: transparent;
+  color: var(--cal-ink);
+  font: inherit;
+  font-size: 0.8rem;
+  line-height: 1.2;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  cursor: pointer;
+}
+.month-event-timed:hover {
+  background: var(--cal-hover);
+}
+/* All-day and multi-day events: a filled block in the event's colour,
+   running on into the next day's cell. */
+.month-event-block {
+  background: var(--event-colour);
+  color: #fff;
+  font-weight: 700;
+}
+.month-event-block:hover {
+  filter: brightness(0.92);
+}
+.month-event-from-before {
+  margin-left: -0.3rem;
+  width: calc(100% + 0.3rem);
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+.month-event-goes-on {
+  width: calc(100% + 0.3rem);
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.month-event-from-before.month-event-goes-on {
+  width: calc(100% + 0.6rem);
+}
+.month-event-dot {
+  flex: none;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: var(--event-colour);
+}
+.month-event-time {
+  flex: none;
+  color: var(--cal-muted);
+  font-variant-numeric: tabular-nums;
+}
+.month-event-timed .month-event-title {
+  font-weight: 600;
+}
+.month-event-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.month-more {
+  align-self: flex-start;
+  padding: 0.1rem 0.4rem;
+  border: 0;
+  border-radius: 0.35rem;
+  background: none;
+  color: var(--cal-ink);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+.month-more:hover {
+  background: var(--cal-hover);
+}
+.month-date:focus-visible,
+.month-event:focus-visible,
+.month-more:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: -2px;
+}
+
+/* ---------- one day, in full (dialog) ---------- */
+
+.calendar-empty {
+  padding: 0.5rem 0;
+  color: var(--ink-soft);
+  font-weight: 600;
+}
+.calendar-events {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+/* Colour bar, time on the left, the whole title (wrapping as needed) on the right. */
+.calendar-event {
+  display: grid;
+  grid-template-columns: minmax(6.5rem, auto) minmax(0, 1fr);
+  align-items: baseline;
+  gap: 0.25rem 1.25rem;
+  padding: 0.75rem 0.25rem 0.75rem 0.9rem;
+  border-left: 0.35rem solid var(--event-colour, var(--line));
+}
+.calendar-event + .calendar-event {
+  border-top: 1px solid var(--line);
+}
+.calendar-event-when {
+  font-weight: 800;
+  color: var(--primary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.calendar-event-text {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+.calendar-event-title {
+  font-size: 1.15rem;
+  font-weight: 800;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.calendar-event-location {
+  color: var(--ink-soft);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* Phones: a compact grid; tap a day to read it in full. */
+@media (max-width: 640px) {
+  .calendar-toolbar {
+    gap: 0.5rem;
+  }
+  .calendar-back {
+    font-size: 0.95rem;
+  }
+  .calendar-month-title {
+    margin-inline: 0.25rem;
+    font-size: 1.35rem;
+  }
+  .month-grid {
+    --month-row: 1.15rem;
+    border-radius: var(--radius-sm);
+  }
+  .month-body {
+    grid-template-rows: repeat(var(--month-weeks, 5), minmax(5.5rem, 1fr));
+  }
+  .month-weekday {
+    font-size: 0.65rem;
+    letter-spacing: 0.02em;
+  }
+  .month-cell {
+    padding: 0.1rem 0.1rem 0.2rem;
+  }
+  .month-date {
+    min-width: 1.5rem;
+    height: 1.5rem;
+    padding: 0 0.25rem;
+    font-size: 0.75rem;
+  }
+  .month-event {
+    padding: 0 0.2rem;
+    font-size: 0.66rem;
+  }
+  .month-event-time {
+    display: none;
+  }
+  .month-more {
+    font-size: 0.66rem;
+    padding: 0 0.2rem;
+  }
+  .calendar-event {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* The kiosk's large portrait touchscreen: tall, narrow day cells, so titles
+   get two lines of bigger text, readable from across the room. */
+@media (orientation: portrait) and (min-height: 1400px) and (min-width: 900px) {
+  .month-grid {
+    --month-row: 3.2rem;
+  }
+  .month-event {
+    white-space: normal;
+    padding-block: 0.15rem;
+  }
+  .month-event-title {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow-wrap: anywhere;
+  }
+  .month-weekday {
+    font-size: 1rem;
+  }
+  .month-date {
+    min-width: 2.6rem;
+    height: 2.6rem;
+    font-size: 1.15rem;
+  }
+  .month-event {
+    font-size: 1.05rem;
+  }
+  .month-more {
+    font-size: 1rem;
+  }
+  .calendar-event-title {
+    font-size: 1.45rem;
+  }
+  .calendar-event-when,
+  .calendar-event-location {
+    font-size: 1.2rem;
+  }
+}
+
+/* ---------- Settings → Integrations ---------- */
+
+.integration-eyebrow {
+  margin-bottom: -0.6rem;
+  font-size: 0.85rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.integration-body,
+.integration-setup {
+  display: grid;
+  gap: 0.85rem;
+}
+.integration-setup code {
+  font-size: 0.95rem;
+  overflow-wrap: anywhere;
+}
+.integration-ok {
+  font-weight: 800;
+  color: var(--success-ink);
+}
+.integration-problem {
+  display: grid;
+  gap: 0.6rem;
+  justify-items: start;
+  padding: 0.8rem 1rem;
+  border-radius: var(--radius);
+  background: var(--danger-soft);
+  border: 2px solid #f0b8b3;
+  color: #7a1a14;
+  font-weight: 700;
+}
+.integration-note {
+  padding: 0.8rem 1rem;
+  border-radius: var(--radius);
+  background: #e6f0ff;
+  border: 2px solid #9cc0f5;
+  color: #12366b;
+  font-weight: 700;
+}
+.integration-link {
+  color: inherit;
+  overflow-wrap: anywhere;
+}
+/* One way of connecting (Google sign-in, calendar address). */
+.integration-method {
+  display: grid;
+  gap: 0.75rem;
+  padding-top: 1rem;
+  border-top: 2px solid var(--line);
+}
+.integration-method-title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 800;
+}
+.integration-warning {
+  padding: 0.8rem 1rem;
+  border-radius: var(--radius);
+  background: #fff0c2;
+  border: 2px solid #f2c94c;
+  color: #5c4000;
+}
+.integration-check {
+  display: grid;
+  gap: 0.6rem;
+  padding: 0.8rem 1rem;
+  border-radius: var(--radius);
+  background: var(--success-soft);
+  border: 2px solid #9ed6ad;
+}
+.integration-details {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+}
+.integration-details > div {
+  display: grid;
+  grid-template-columns: minmax(8rem, auto) minmax(0, 1fr);
+  gap: 0.75rem;
+}
+.integration-details dt {
+  font-weight: 800;
+}
+.integration-details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 600px) {
+  .integration-details > div {
+    grid-template-columns: 1fr;
+    gap: 0.1rem;
+  }
 }

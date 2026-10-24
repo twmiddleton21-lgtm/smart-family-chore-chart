@@ -1,6 +1,8 @@
+import { writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ConfigError, loadConfig } from './config';
+import { tempDir } from './testUtils';
 import { todayInZone } from './time';
 
 describe('configuration', () => {
@@ -29,6 +31,90 @@ describe('configuration', () => {
     expect(() => loadConfig({ SFCC_DEV_UNAUTHENTICATED_API: '1', SFCC_HOST: '0.0.0.0' })).toThrow(/loopback/);
     expect(() => loadConfig({ SFCC_DEV_UNAUTHENTICATED_API: '1', SFCC_HOST: '192.168.1.10' })).toThrow(/loopback/);
     expect(() => loadConfig({ SFCC_DEV_UNAUTHENTICATED_API: '1', NODE_ENV: 'production' })).toThrow(/production/);
+  });
+
+  it('Google Calendar: off by default, listing what is missing (names only)', () => {
+    const plain = loadConfig({});
+    expect(plain.google).toBeUndefined();
+    expect(plain.secretKey).toBeUndefined();
+    expect(plain.googleMissing).toEqual(['SFCC_GOOGLE_CLIENT_ID', 'SFCC_GOOGLE_CLIENT_SECRET_FILE', 'SFCC_GOOGLE_REDIRECT_URI', 'SFCC_SECRET_KEY_FILE']);
+    expect(plain.devCalendarFixture).toBeUndefined();
+    expect(plain.calendarFeedHosts).toEqual([]);
+  });
+
+  it('SFCC_CALENDAR_FEED_HOSTS: extra public host names for iCal addresses, nothing else', () => {
+    expect(loadConfig({ SFCC_CALENDAR_FEED_HOSTS: 'calendar.school.example, Feeds.Club.Example' }).calendarFeedHosts).toEqual([
+      'calendar.school.example',
+      'feeds.club.example',
+    ]);
+    for (const bad of ['127.0.0.1', '10.0.0.1', 'localhost', 'intranet', 'x.localhost', 'cal.example:8443', '*.example.com', 'https://cal.example', '[::1]']) {
+      expect(() => loadConfig({ SFCC_CALENDAR_FEED_HOSTS: bad }), bad).toThrow(/SFCC_CALENDAR_FEED_HOSTS/);
+    }
+  });
+
+  describe('Google Calendar settings', () => {
+    let dir: string;
+    let cleanup: () => void;
+    beforeEach(() => ({ dir, cleanup } = tempDir()));
+    afterEach(() => cleanup());
+
+    const KEY = Buffer.alloc(32, 7).toString('base64');
+    const full = () => {
+      writeFileSync(path.join(dir, 'secret.txt'), 'test-client-secret\n');
+      writeFileSync(path.join(dir, 'key.txt'), `${KEY}\n`);
+      return {
+        SFCC_GOOGLE_CLIENT_ID: '123-abc.apps.googleusercontent.com',
+        SFCC_GOOGLE_CLIENT_SECRET_FILE: 'secret.txt',
+        SFCC_GOOGLE_REDIRECT_URI: 'https://chores.example.com/api/calendar/google/callback',
+        SFCC_ALLOWED_HOSTS: 'chores.example.com',
+        SFCC_SECRET_KEY_FILE: 'key.txt',
+      };
+    };
+
+    it('reads secrets from files (trimmed) and is complete when everything is set', () => {
+      const c = loadConfig(full(), dir);
+      expect(c.google).toEqual({ clientId: '123-abc.apps.googleusercontent.com', clientSecret: 'test-client-secret', redirectUri: 'https://chores.example.com/api/calendar/google/callback' });
+      expect(c.secretKey).toEqual(Buffer.alloc(32, 7));
+      expect(c.googleMissing).toEqual([]);
+    });
+
+    it('partial settings leave Google off and say what is missing', () => {
+      const { SFCC_SECRET_KEY_FILE: _k, ...noKey } = full();
+      const c = loadConfig(noKey, dir);
+      expect(c.google).toBeDefined();
+      expect(c.googleMissing).toEqual(['SFCC_SECRET_KEY_FILE']);
+    });
+
+    it('accepts http only for localhost redirect URIs, with the exact callback path', () => {
+      expect(loadConfig({ ...full(), SFCC_GOOGLE_REDIRECT_URI: 'http://localhost:3000/api/calendar/google/callback' }, dir).google?.redirectUri).toBe(
+        'http://localhost:3000/api/calendar/google/callback',
+      );
+      for (const bad of [
+        'http://192.168.1.20:3080/api/calendar/google/callback', // Google refuses plain-HTTP LAN addresses
+        'https://chores.example.com/api/calendar/google/callback?x=1',
+        'https://chores.example.com/callback',
+        'not a url',
+      ]) {
+        expect(() => loadConfig({ ...full(), SFCC_GOOGLE_REDIRECT_URI: bad }, dir), bad).toThrow(/SFCC_GOOGLE_REDIRECT_URI/);
+      }
+    });
+
+    it('requires the redirect host in SFCC_ALLOWED_HOSTS (or Google’s redirect back would get 421)', () => {
+      expect(() => loadConfig({ ...full(), SFCC_ALLOWED_HOSTS: '' }, dir)).toThrow(/SFCC_ALLOWED_HOSTS/);
+    });
+
+    it('rejects a malformed client ID, an unreadable secret file and a weak key', () => {
+      expect(() => loadConfig({ ...full(), SFCC_GOOGLE_CLIENT_ID: 'abc' }, dir)).toThrow(/SFCC_GOOGLE_CLIENT_ID/);
+      expect(() => loadConfig({ ...full(), SFCC_GOOGLE_CLIENT_SECRET_FILE: 'missing.txt' }, dir)).toThrow(/can't be read/);
+      writeFileSync(path.join(dir, 'short.txt'), 'too-short');
+      expect(() => loadConfig({ ...full(), SFCC_SECRET_KEY_FILE: 'short.txt' }, dir)).toThrow(/openssl rand -base64 32/);
+      expect(loadConfig({ ...full(), SFCC_SECRET_KEY_FILE: '', SFCC_SECRET_KEY: 'ab'.repeat(32) }, dir).secretKey).toHaveLength(32);
+    });
+
+    it('never allows the development calendar fixture in production', () => {
+      expect(loadConfig({ SFCC_DEV_CALENDAR_FIXTURE: 'cal.json' }, '/srv').devCalendarFixture).toMatch(/cal\.json$/);
+      expect(() => loadConfig({ SFCC_DEV_CALENDAR_FIXTURE: 'cal.json', NODE_ENV: 'production' })).toThrow(/development and tests only/);
+    });
   });
 
   it('trusts no reverse proxy by default; SFCC_TRUST_PROXY lists them explicitly', () => {

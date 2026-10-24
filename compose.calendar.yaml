@@ -1,0 +1,40 @@
+# OPTIONAL add-on for compose.server.yaml: the read-only Family Calendar.
+# Guide: docs/GOOGLE-CALENDAR.md.
+#
+# This file turns the calendar on with a private calendar address (iCal),
+# which needs nothing else:
+#
+#   docker compose -p sfcc -f compose.server.yaml -f compose.calendar.yaml up -d
+#
+# Use the installation's project name (-p sfcc, as in docs/INSTALL-UBUNTU.md)
+# so this changes the existing server and keeps its data volume; without it
+# Compose names the project after the folder and starts a second, empty one.
+# Pass the same -f files to every command (above all "up", which otherwise
+# recreates the server without the calendar settings).
+#
+# For Google Calendar sign-in (OAuth, recommended) add compose.google-calendar.yaml
+# as well; see that file.
+#
+# The secret key is a file on this machine, mounted read-only into the
+# container at /run/secrets; it is never in .env, the image or the repository:
+#   ./secrets/sfcc-secret-key.txt   32 random bytes: openssl rand -base64 32
+# The container runs as uid 1000, so: sudo chown 1000:1000 secrets/*.txt && sudo chmod 400 secrets/*.txt
+#
+# Keep the key safe and unchanged: the family's calendar connection (a
+# Google token or a calendar address) is stored encrypted with it. A
+# different key means connecting the calendar again.
+
+services:
+  app:
+    environment:
+      SFCC_SECRET_KEY_FILE: /run/secrets/sfcc_secret_key
+      # Optional: extra host names a calendar address may use, besides Google,
+      # Outlook/Microsoft 365 and iCloud (comma-separated, e.g. a school's
+      # calendar host). Empty = the built-in providers only.
+      SFCC_CALENDAR_FEED_HOSTS: ${SFCC_CALENDAR_FEED_HOSTS:-}
+    secrets:
+      - sfcc_secret_key
+
+secrets:
+  sfcc_secret_key:
+    file: ${SFCC_SECRET_KEY_PATH:-./secrets/sfcc-secret-key.txt}

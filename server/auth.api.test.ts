@@ -1022,9 +1022,13 @@ const PUBLIC_ROUTES = new Set([
   'POST /api/auth/login',
   'POST /api/auth/logout',
   'POST /api/devices/pair',
+  // Google's redirect back: no session cookie arrives (SameSite=Strict), so it
+  // is guarded by the single-use OAuth state and a browser-binding cookie
+  // instead (see server/calendar/familyCalendar.test.ts).
+  'GET /api/calendar/google/callback',
 ]);
 /** Routes a paired device (without a parent) may use. */
-const HOUSEHOLD_ROUTES = new Set(['GET /api/state', 'POST /api/commands']);
+const HOUSEHOLD_ROUTES = new Set(['GET /api/state', 'POST /api/commands', 'GET /api/calendar']);
 
 const routeUrl = (route: string) => route.split(' ')[1]!.replace(':id', 'some-id');
 
@@ -1034,10 +1038,18 @@ describe('access control covers every route', () => {
     const all = [...new Set(app.sfccRoutes)].sort();
     const parentOnly = all.filter((r) => !PUBLIC_ROUTES.has(r) && !HOUSEHOLD_ROUTES.has(r));
     expect(parentOnly).toEqual([
+      'GET /api/calendar/connection',
+      'GET /api/calendar/google/calendars',
       'GET /api/devices',
       'GET /api/export',
       'GET /api/parents',
       'POST /api/account/password',
+      'POST /api/calendar/google/calendar',
+      'POST /api/calendar/google/connect',
+      'POST /api/calendar/google/disconnect',
+      'POST /api/calendar/ical/check',
+      'POST /api/calendar/ical/disconnect',
+      'POST /api/calendar/ical/use',
       'POST /api/devices/:id/revoke',
       'POST /api/devices/pairing-codes',
       'POST /api/import/apply',

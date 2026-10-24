@@ -35,10 +35,16 @@ test.afterAll(async () => {
   await kioskCtx?.close();
 });
 
+/** No pre-release strip (removed), and no development-mode strip in this normal, sign-in build. */
+const expectNoBuildBanner = async (page: Page) => {
+  await expect(page.getByText(/Pre-release build/)).toHaveCount(0);
+  await expect(page.locator('.banner-dev')).toHaveCount(0);
+};
+
 test('a fresh server asks for first-run setup and shows no family data', async () => {
   await parent.goto('/');
   await expect(parent.getByRole('heading', { name: 'Set up your family server' })).toBeVisible();
-  await expect(parent.getByText('Pre-release build of the shared family server')).toBeVisible();
+  await expectNoBuildBanner(parent);
   // Nothing of the household is reachable without signing in.
   const status = await parent.evaluate(async () => (await fetch('/api/state')).status);
   expect(status).toBe(401);
@@ -56,6 +62,7 @@ test('setup needs the right code, then signs the first parent in', async () => {
   await parent.getByLabel('Setup code').fill(E2E_SETUP_CODE.toLowerCase());
   await parent.getByRole('button', { name: 'Create parent account' }).click();
   await expect(parent.getByText('No profiles yet.', { exact: false })).toBeVisible();
+  await expectNoBuildBanner(parent);
   // The session cookie is HttpOnly: page scripts can't read it.
   expect(await parent.evaluate(() => document.cookie)).not.toContain('sfcc_parent');
   const cookie = (await parentCtx.cookies()).find((c) => c.name === 'sfcc_parent');
@@ -66,6 +73,7 @@ test('a signed-in parent goes straight to the parent area and can load the demo 
   await parent.getByRole('button', { name: /Parent area/ }).first().click();
   await expect(parent.getByRole('heading', { name: /Parent area/ })).toBeVisible();
   await expect(parent.getByLabel('Enter the parent PIN')).toHaveCount(0);
+  await expectNoBuildBanner(parent);
   await parent.getByRole('tab', { name: /Settings/ }).click();
   await parent.getByRole('button', { name: 'Load demo family' }).click();
   await parent.getByRole('dialog').getByRole('button', { name: 'Load demo family' }).click();
@@ -79,6 +87,7 @@ test('a signed-in parent goes straight to the parent area and can load the demo 
 test('an unpaired browser sees only the locked screen', async () => {
   await kiosk.goto('/');
   await expect(kiosk.getByRole('heading', { name: 'Connect this device' })).toBeVisible();
+  await expectNoBuildBanner(kiosk);
   await expect(kiosk.getByText('Maya')).toHaveCount(0);
   expect(await kiosk.evaluate(async () => (await fetch('/api/state')).status)).toBe(401);
   // A wrong pairing code is refused.
@@ -99,6 +108,7 @@ test('a parent pairs the kitchen tablet with a one-time code', async () => {
   await kiosk.getByRole('button', { name: 'Pair this device' }).click();
   await dismissMealReminder(kiosk);
   await expect(kiosk.getByRole('button', { name: /Open Maya's chore chart/ })).toBeVisible();
+  await expectNoBuildBanner(kiosk);
 
   // The device now appears in the parent's list.
   await parent.getByRole('tab', { name: /Settings/ }).click();

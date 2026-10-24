@@ -67,19 +67,13 @@ export function ServerStatusScreen({ store }: { store: FamilyStore }) {
   );
 }
 
-/** Persistent strip in server builds: not released for real families yet. */
-export function DevBuildBanner() {
+/** Persistent warning while the server runs in development mode (no sign-in); nothing otherwise. */
+export function DevModeBanner() {
   const access = useAccess();
-  if (access?.status.devMode) {
-    return (
-      <div className="banner banner-dev" role="note">
-        🧪 Development mode: shared family server with <strong>no sign-in</strong>. Not for real family data.
-      </div>
-    );
-  }
+  if (!access?.status.devMode) return null;
   return (
     <div className="banner banner-dev" role="note">
-      🧪 Pre-release build of the shared family server. Not ready for real family data yet.
+      🧪 Development mode: shared family server with <strong>no sign-in</strong>. Not for real family data.
     </div>
   );
 }

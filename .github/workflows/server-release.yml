@@ -8,7 +8,8 @@
 #   ghcr.io/<owner>/smart-family-chore-chart-server:<version>
 #   ghcr.io/<owner>/smart-family-chore-chart-server:sha-<full commit sha>
 #
-# and creates a GitHub release with the install notes and an image archive:
+# and creates a GitHub release with the install notes, an image archive and
+# the Compose files (the server, and the optional Family Calendar add-ons):
 # a full release for a plain version (0.4.0), a pre-release for a version
 # with a suffix (0.4.0-rc.1).
 # It never publishes a "latest" tag, never touches the browser-only image
@@ -210,4 +211,4 @@ jobs:
             --verify-tag \
             "${kind[@]}" \
             --notes-file release-notes.md \
-            "$ARCHIVE" "$ARCHIVE.sha256" compose.server.yaml sfcc-server.env.example
+            "$ARCHIVE" "$ARCHIVE.sha256" compose.server.yaml compose.calendar.yaml compose.google-calendar.yaml sfcc-server.env.example

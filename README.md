@@ -3,7 +3,7 @@
 ![Conceptual overview of Smart Family Chore Chart: feature highlights, illustrative app screens and a Docker quick start](docs/images/readme-overview.webp)
 
 > **About this image:** it's an AI-generated **conceptual preview**, not a screenshot of the real app. The real screens look different; for example, there's no sidebar, and parents sign in with a username *and* password. Some of its wording doesn't match this project:
-> - The shared-server image (version 0.4.0) is meant for **private networks**, and has known [security limitations](#security-limitations-of-the-shared-server).
+> - The shared-server image (version 0.5.0) is meant for **private networks**, and has known [security limitations](#security-limitations-of-the-shared-server).
 > - There's **no "Forgot your password?" link**; password recovery uses the server command line.
 > - **Children don't have accounts**: parents sign in, and family devices are paired.
 > - The project has **no open-source licence** (see [Licence](#licence)).
@@ -16,16 +16,16 @@ A cheerful family chore chart for a large portrait touchscreen (built and tested
 
 The app comes in two editions:
 
-| | **Browser-only app** (v0.3.0, published) | **Shared family server** (v0.4.0) |
+| | **Browser-only app** (v0.3.0, published) | **Shared family server** (v0.5.0) |
 |---|---|---|
 | Where data lives | In one browser on one device (localStorage) | In one SQLite database on your own server, shared by every device |
 | Parent protection | A client-side PIN (a convenience lock, **not security**) | Parent accounts with passwords, checked by the server |
 | Family devices | Each device has its own separate data | Kiosks are **paired** with one-time codes and share the same data |
-| How to get it | Published image `ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart` (`latest`) | Release image `ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart-server:0.4.0` (a separate package, no `latest`), or build it from `Dockerfile.server` |
-| Status | Released | **Version 0.4.0 for private LAN use; see the security limitations** |
+| How to get it | Published image `ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart` (`latest`) | Release image `ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart-server:0.5.0` (a separate package, no `latest`), or build it from `Dockerfile.server` |
+| Status | Released | **Version 0.5.0 for private LAN use; see the security limitations** |
 
 > **Status of the shared family server.** It's on the `feature/shared-backend` branch and hasn't been merged into `main`.
-> - **Versioned releases only:** the server is published as release [`server-v0.4.0`](https://github.com/twmiddleton21-lgtm/smart-family-chore-chart/releases/tag/server-v0.4.0), a versioned image with no `latest` tag (release candidate `server-v0.4.0-rc.1` remains available). Install it with [`docs/INSTALL-UBUNTU.md`](docs/INSTALL-UBUNTU.md).
+> - **Versioned releases only:** the server is published as release [`server-v0.5.0`](https://github.com/twmiddleton21-lgtm/smart-family-chore-chart/releases/tag/server-v0.5.0), a versioned image with no `latest` tag (earlier releases, such as `server-v0.4.0`, remain available). Install it with [`docs/INSTALL-UBUNTU.md`](docs/INSTALL-UBUNTU.md); to update an existing installation, see [Update to a newer release](docs/INSTALL-UBUNTU.md#update-to-a-newer-release).
 > - **Tested locally only:** it has been tested on one computer (linux/amd64) with made-up data. No deployment behind a reverse proxy or Cloudflare Tunnel has been confirmed, and Raspberry Pi (ARM) compatibility is **unverified**.
 > - **No live updates yet:** other devices show changes when they reload or regain focus.
 > - **Not ready for real family data:** see [Security limitations](#security-limitations-of-the-shared-server) before using it with real data.
@@ -44,7 +44,8 @@ The app comes in two editions:
   - [Bringing data from the browser-only app](#bringing-data-from-the-browser-only-app)
   - [Persistence, backup and restore](#persistence-backup-and-restore)
   - [Password reset](#password-reset)
-  - [Upgrading and stopping](#upgrading-and-stopping)
+  - [Updating an existing installation](#updating-an-existing-installation)
+  - [Stopping](#stopping)
   - [Networking, HTTPS and reverse proxies](#networking-https-and-reverse-proxies)
   - [Troubleshooting](#troubleshooting)
   - [Verifying an image](#verifying-an-image)
@@ -73,9 +74,15 @@ The app comes in two editions:
 - **Parent area:** manage children, chores, rewards, meals, food options and settings.
   - In the browser-only app it's behind a PIN.
   - On the shared server it needs a parent sign-in, and adds a **Family access** tab for parent accounts, your own password, paired devices and pairing codes.
+- **Family Calendar (shared server, read-only):** a home-screen button opens a whole-month view of the family's calendar, with events inside their days. A parent connects it **once** (Parent area → Settings → Integrations), and every parent and paired device then sees it. There are two ways to connect, one at a time:
+  - **Google Calendar sign-in** (recommended), with the operator's own Google OAuth client;
+  - a **private calendar address (iCal)** from Google Calendar, Outlook/Microsoft 365 or iCloud, which needs no Google Cloud setup.
+
+  The server keeps the token or address encrypted, and the browser never sees it. No central service is involved. Setup: [`docs/GOOGLE-CALENDAR.md`](docs/GOOGLE-CALENDAR.md).
+- **Touchscreen kiosks:** native finger scrolling everywhere with hidden scrollbars, and an opt-in `?dragscroll=1` mode for touchscreens the browser reports as a mouse. See [`docs/KIOSK-TOUCHSCREEN.md`](docs/KIOSK-TOUCHSCREEN.md).
 - **Export and import:** export the family data as a JSON file. On the shared server, import it, with a preview, a confirmation and an automatic backup first.
 - **Accessibility:** semantic HTML, labelled controls, keyboard-operable dialogs and tabs, visible focus rings, 48px+ touch targets and `prefers-reduced-motion` support.
-- **Privacy:** no analytics, ads, trackers, CDNs or external requests. Only a first name or nickname, an avatar and a colour are stored per child.
+- **Privacy:** no analytics, ads, trackers, CDNs or external requests from the browser (the optional Family Calendar is fetched by the shared server, not the browser). Only a first name or nickname, an avatar and a colour are stored per child.
 
 ## Visual preview
 
@@ -94,7 +101,9 @@ One container runs the Fastify server (Node.js 24), which serves both the app an
 
 ### Install and start
 
-**From the release (recommended):** follow [`docs/INSTALL-UBUNTU.md`](docs/INSTALL-UBUNTU.md). It covers copy-and-paste Ubuntu commands, `.env` settings, LAN access from another PC, backups, updates and uninstalling. The image is `ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart-server:0.4.0` (linux/amd64); the [release page](https://github.com/twmiddleton21-lgtm/smart-family-chore-chart/releases/tag/server-v0.4.0) lists its digest and an image archive for hosts that can't pull.
+**From the release (recommended):** follow [`docs/INSTALL-UBUNTU.md`](docs/INSTALL-UBUNTU.md). It covers copy-and-paste Ubuntu commands, `.env` settings, LAN access from another PC, backups, updates and uninstalling. The image is `ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart-server:0.5.0` (linux/amd64); the [release page](https://github.com/twmiddleton21-lgtm/smart-family-chore-chart/releases/tag/server-v0.5.0) lists its digest and an image archive for hosts that can't pull.
+
+**Already running an earlier version?** See [Updating an existing installation](#updating-an-existing-installation) below; you keep all your data.
 
 **Or build it yourself from source:**
 
@@ -138,6 +147,8 @@ Settings read by `compose.server.yaml`, from a `.env` file next to it (copy [`.e
 | `SFCC_COOKIE_SECURE` | `auto` | `auto`, `always` or `never` (see [HTTPS](#networking-https-and-reverse-proxies)). |
 | `SFCC_TRUST_PROXY` | empty | Trusted reverse-proxy addresses (see [reverse proxies](#networking-https-and-reverse-proxies)). |
 | `SFCC_ALLOWED_HOSTS` | empty | Other host names or addresses the server answers to, besides `localhost`, `127.0.0.1` and `[::1]` (see [networking](#networking-https-and-reverse-proxies)). |
+
+**Optional Family Calendar:** for a private calendar address (iCal), add `-f compose.calendar.yaml` and a secret key file. For Google Calendar sign-in, also add `-f compose.google-calendar.yaml` with your own OAuth client's settings. Keep the installation's project name (`-p sfcc`) and pass the same `-f` files to every `up`. See [`docs/GOOGLE-CALENDAR.md`](docs/GOOGLE-CALENDAR.md).
 
 The image always runs in production mode (`NODE_ENV=production`). It runs as an unprivileged user with a read-only root filesystem, all Linux capabilities dropped, and a health check on `/readyz`. The development-only mode without sign-in can't be enabled in it.
 
@@ -220,15 +231,47 @@ docker compose -f compose.server.yaml exec app node dist-server/cli.js reset-pas
 
 This prints a temporary password and signs that parent out everywhere. Sign in with it and change it straight away in Family access.
 
-### Upgrading and stopping
+### Updating an existing installation
 
-- **To upgrade:**
-  1. Take a backup.
-  2. `git pull`, and build a new image with a new tag.
-  3. Set `SFCC_SERVER_IMAGE` to it and run `docker compose -f compose.server.yaml up -d`.
+For an installation made with [`docs/INSTALL-UBUNTU.md`](docs/INSTALL-UBUNTU.md): the folder `~/sfcc-server`, the Compose project `sfcc` and the data volume `sfcc_chorechart-data`. The update keeps the volume and all family data. The full step-by-step version, with a before-and-after check of each child's points, is [Update to a newer release](docs/INSTALL-UBUNTU.md#update-to-a-newer-release).
 
-  A newer version migrates the database at start-up, after an automatic backup. An older image refuses to open a newer database.
-- **To stop:** `docker compose -f compose.server.yaml stop` (or `down`, which keeps the volume). The server shuts down cleanly on `SIGTERM`.
+**New image:** `ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart-server:0.5.0`
+
+```bash
+cd ~/sfcc-server
+
+# 1. Back up (while the old version runs), then copy the backup off the volume
+docker compose -p sfcc -f compose.server.yaml exec app node dist-server/cli.js backup before-update
+docker compose -p sfcc -f compose.server.yaml exec app node dist-server/cli.js status        # "backups" lists the files
+docker compose -p sfcc -f compose.server.yaml cp app:/data/backups/<the …-before-update.db file> ./
+
+# 2. Change only the image line in .env, pull it and recreate the container
+sed -i 's|^SFCC_SERVER_IMAGE=.*|SFCC_SERVER_IMAGE=ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart-server:0.5.0|' .env
+docker pull "$(grep ^SFCC_SERVER_IMAGE= .env | cut -d= -f2)"
+docker compose -p sfcc -f compose.server.yaml up -d
+
+# 3. Check it's healthy and upgraded, then open the app and check the children and points
+docker compose -p sfcc -f compose.server.yaml ps                                            # wait for "healthy"
+docker compose -p sfcc -f compose.server.yaml logs app | grep -E 'schema migrated|data opened'
+docker compose -p sfcc -f compose.server.yaml exec app node dist-server/cli.js status        # "schemaVersion": 4
+```
+
+- **Never run `docker compose … down -v` or `docker volume rm sfcc_chorechart-data` during an update.** Both delete the family's data. Plain `down` keeps it.
+- **Always use `-p sfcc`.** Without it, Compose starts a second, empty installation. If you use the Family Calendar add-ons, add the same `-f compose.calendar.yaml` (and `-f compose.google-calendar.yaml`) as before.
+- **What happens at start-up:**
+  - The database upgrades itself once, after an automatic verified backup in `/data/backups`. It only adds tables.
+  - Parents and paired kiosks stay signed in, and your `.env`, the calendar key, host names and any tunnel or proxy are untouched.
+- **Going back:** an older image refuses an upgraded database rather than risk it. The guide's [Going back to the previous version](docs/INSTALL-UBUNTU.md#going-back-to-the-previous-version) has two tested ways:
+  - restore the automatic backup; or
+  - keep today's data and remove only the calendar tables.
+- **The Family Calendar is optional** and stays off until you set it up: [`docs/GOOGLE-CALENDAR.md`](docs/GOOGLE-CALENDAR.md).
+- **Tested so far:** the 0.4.0 → 0.5.0 upgrade, the failure cases and the rollback were tested on copies with made-up data. The same update with the published image on a real Docker volume **hasn't been verified yet**, which is another reason to keep the backup copy. See also the [security limitations](#security-limitations-of-the-shared-server).
+
+**Built from source instead?** Take a backup, `git pull`, build a new image with a new tag, set `SFCC_SERVER_IMAGE` to it and run `docker compose -f compose.server.yaml up -d` with the same project name as before.
+
+### Stopping
+
+`docker compose -f compose.server.yaml stop` (or `down`, which keeps the volume). Use the same `-p` project name as for starting (`-p sfcc` for a release installation). The server shuts down cleanly on `SIGTERM`.
 
 ### Networking, HTTPS and reverse proxies
 

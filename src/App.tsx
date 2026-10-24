@@ -12,18 +12,21 @@ import { ToastProvider } from './state/toast';
 import { Dashboard } from './screens/Dashboard';
 import { ChildChart } from './screens/ChildChart';
 import { RewardsScreen } from './screens/RewardsScreen';
+import { CalendarScreen } from './screens/CalendarScreen';
 import { ParentGate } from './screens/ParentGate';
 import { DevParentNotice } from './screens/DevParentNotice';
 import { ParentArea, type ParentTab } from './screens/parent/ParentArea';
 import { MealReminderDialog } from './components/MealReminderDialog';
-import { AccessStatusScreen, DevBuildBanner, ServerStatusScreen, SignOutProblemBanner } from './components/ServerStatus';
+import { AccessStatusScreen, DevModeBanner, ServerStatusScreen, SignOutProblemBanner } from './components/ServerStatus';
 import { mealReminders, shouldShowMealReminder } from './lib/meals';
+import { CONNECT_RESULTS, connectResultFromHash } from './lib/calendar';
 import type { FamilyData } from './types';
 
 type Screen =
   | { name: 'dashboard' }
   | { name: 'child'; childId: string }
   | { name: 'rewards'; childId: string }
+  | { name: 'calendar' }
   | { name: 'parent' };
 
 export function App() {
@@ -48,7 +51,7 @@ function AccessGate() {
   if (load.state !== 'ready') {
     return (
       <div className="app">
-        <DevBuildBanner />
+        <DevModeBanner />
         <AccessStatusScreen load={load} />
       </div>
     );
@@ -61,7 +64,7 @@ function AccessGate() {
         <StoreShell />
       ) : (
         <div className="app">
-          <DevBuildBanner />
+          <DevModeBanner />
           <SignOutProblemBanner />
           {status.setupRequired ? <SetupScreen access={load.access} /> : <LockedScreen access={load.access} />}
         </div>
@@ -75,7 +78,7 @@ function StoreShell() {
   if (!store.data) {
     return (
       <div className="app">
-        {store.mode === 'api' && <DevBuildBanner />}
+        {store.mode === 'api' && <DevModeBanner />}
         <ServerStatusScreen store={store} />
       </div>
     );
@@ -98,6 +101,22 @@ function AppContent({ store, data }: { store: FamilyStore; data: FamilyData }) {
   const [reminderHidden, setReminderHidden] = useState(false);
 
   const goHome = () => setScreen({ name: 'dashboard' });
+
+  // Back from Google's consent page (/#google-calendar=<result>): say how it
+  // went, tidy the address, and return a signed-in parent to Settings. (A
+  // kiosk signs parents out on reload, so there only the message shows.)
+  useEffect(() => {
+    const result = connectResultFromHash(window.location.hash);
+    if (!result) return;
+    window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    const shown = CONNECT_RESULTS[result] ?? CONNECT_RESULTS.failed!;
+    notify(shown.message, shown.kind);
+    if (parentSignedIn || (access?.status.devMode ?? false)) {
+      setParentTab('settings');
+      setScreen({ name: 'parent' });
+    }
+    // Only once, on the page load that came back from Google.
+  }, []);
 
   // If the selected child disappears (e.g. removed on another device), fall back home.
   const selectedChild =
@@ -165,7 +184,7 @@ function AppContent({ store, data }: { store: FamilyStore; data: FamilyData }) {
 
   return (
     <div className="app">
-      {store.mode === 'api' && <DevBuildBanner />}
+      {store.mode === 'api' && <DevModeBanner />}
       <SignOutProblemBanner />
       {store.saveFailed && (
         <div className="banner banner-warning" role="alert">
@@ -195,6 +214,8 @@ function AppContent({ store, data }: { store: FamilyStore; data: FamilyData }) {
           data={data}
           today={today}
           onSelectChild={(child) => setScreen({ name: 'child', childId: child.id })}
+          // The calendar is fetched by the family server, so only server builds have it.
+          onOpenCalendar={store.mode === 'api' ? () => setScreen({ name: 'calendar' }) : undefined}
           onOpenParent={() => {
             setParentTab('chores');
             setGateOpen(true);
@@ -221,6 +242,7 @@ function AppContent({ store, data }: { store: FamilyStore; data: FamilyData }) {
           onBack={() => setScreen({ name: 'child', childId: selectedChild.id })}
         />
       )}
+      {effective.name === 'calendar' && <CalendarScreen today={today} onBack={goHome} />}
       {effective.name === 'parent' && (
         <ParentArea
           data={data}

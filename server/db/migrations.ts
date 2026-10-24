@@ -96,6 +96,65 @@ export const MIGRATIONS: readonly Migration[] = [
       );
     `,
   },
+  {
+    version: 3,
+    name: 'family Google Calendar connection',
+    sql: `
+      -- The household's read-only Google Calendar connection. At most one
+      -- row: it belongs to the family (this installation), not to the
+      -- parent who connected it, a session or a device. Additive only: no
+      -- existing table or row is touched.
+      CREATE TABLE google_calendar_connection (
+        id                 INTEGER PRIMARY KEY CHECK (id = 1),
+        account_email      TEXT NOT NULL,
+        -- AES-256-GCM ciphertext; the key is a deployment secret
+        -- (SFCC_SECRET_KEY_FILE), never stored in this database.
+        refresh_token_enc  TEXT NOT NULL,
+        key_id             TEXT NOT NULL,      -- fingerprint of that key, to notice a changed key
+        scope              TEXT NOT NULL,
+        calendar_id        TEXT NOT NULL,
+        calendar_name      TEXT NOT NULL,
+        status             TEXT NOT NULL CHECK (status IN ('connected', 'needs_reconnect')),
+        problem            TEXT,
+        connected_by       TEXT REFERENCES parents(id) ON DELETE SET NULL,
+        connected_at       TEXT NOT NULL,
+        updated_at         TEXT NOT NULL
+      );
+    `,
+  },
+  {
+    version: 4,
+    name: 'family iCal feed connection; one calendar connection per family',
+    sql: `
+      -- The household's calendar from a private iCalendar (.ics) address,
+      -- the alternative to Google OAuth. At most one row. Additive only: no
+      -- existing table or row is touched, so an existing Google connection
+      -- stays as it is.
+      CREATE TABLE ical_feed_connection (
+        id             INTEGER PRIMARY KEY CHECK (id = 1),
+        -- The address is a bearer secret: AES-256-GCM ciphertext, key from
+        -- the deployment (SFCC_SECRET_KEY_FILE), never stored here.
+        url_enc        TEXT NOT NULL,
+        key_id         TEXT NOT NULL,      -- fingerprint of that key, to notice a changed key
+        provider       TEXT NOT NULL CHECK (provider IN ('google', 'microsoft', 'apple', 'other')),
+        host           TEXT NOT NULL,      -- not secret; shown to parents
+        calendar_name  TEXT NOT NULL,
+        connected_by   TEXT REFERENCES parents(id) ON DELETE SET NULL,
+        connected_at   TEXT NOT NULL,
+        updated_at     TEXT NOT NULL
+      );
+
+      -- One active calendar connection per family: Google OAuth OR an iCal
+      -- feed, never both. Switching deletes the old row and inserts the new
+      -- one in a single transaction (server/calendar/familyCalendar.ts).
+      CREATE TRIGGER one_calendar_connection_ical BEFORE INSERT ON ical_feed_connection
+        WHEN EXISTS (SELECT 1 FROM google_calendar_connection)
+        BEGIN SELECT RAISE(ABORT, 'the family already has a Google Calendar connection'); END;
+      CREATE TRIGGER one_calendar_connection_google BEFORE INSERT ON google_calendar_connection
+        WHEN EXISTS (SELECT 1 FROM ical_feed_connection)
+        BEGIN SELECT RAISE(ABORT, 'the family already has an iCal feed connection'); END;
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version;

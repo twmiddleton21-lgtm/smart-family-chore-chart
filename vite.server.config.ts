@@ -17,6 +17,8 @@ export default defineConfig({
       input: {
         main: 'server/main.ts',
         cli: 'server/cli.ts',
+        // The iCal parser's worker thread (icalFeed.ts), started by main.js.
+        icalWorker: 'server/calendar/icalWorker.ts',
       },
       output: { format: 'es', entryFileNames: '[name].js' },
     },

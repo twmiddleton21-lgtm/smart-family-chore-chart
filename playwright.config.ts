@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { defineConfig } from '@playwright/test';
@@ -16,6 +17,14 @@ export const AUTH_WEB_PORT = 4178;
 export const E2E_SETUP_CODE = 'E2ETESTSETUP2026';
 const dataDir = path.join(os.tmpdir(), `sfcc-e2e-${process.pid}-${Date.now()}`);
 const authDataDir = `${dataDir}-auth`;
+/**
+ * Development-only calendar fixture the e2e tests write (never Google). Kept
+ * in the environment so test workers (other processes) see the same path.
+ */
+process.env.SFCC_E2E_CALENDAR_FIXTURE ??= path.join(os.tmpdir(), `sfcc-e2e-calendar-${process.pid}-${Date.now()}.json`);
+export const E2E_CALENDAR_FIXTURE = process.env.SFCC_E2E_CALENDAR_FIXTURE;
+/** A throwaway encryption key for the development server, so Settings offers calendar addresses (iCal). */
+const E2E_SECRET_KEY = randomBytes(32).toString('hex');
 
 export default defineConfig({
   testDir: 'e2e',
@@ -34,7 +43,7 @@ export default defineConfig({
     {
       command: 'npx tsx server/main.ts --dev-unauthenticated-api',
       url: `http://127.0.0.1:${API_PORT}/readyz`,
-      env: { SFCC_DATA_DIR: dataDir, SFCC_PORT: String(API_PORT), SFCC_TIMEZONE: 'Europe/London' },
+      env: { SFCC_DATA_DIR: dataDir, SFCC_PORT: String(API_PORT), SFCC_TIMEZONE: 'Europe/London', SFCC_DEV_CALENDAR_FIXTURE: E2E_CALENDAR_FIXTURE, SFCC_SECRET_KEY: E2E_SECRET_KEY },
       reuseExistingServer: false,
       timeout: 60_000,
       stdout: 'ignore',

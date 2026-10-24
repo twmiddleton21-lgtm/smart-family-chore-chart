@@ -1,5 +1,7 @@
+import { readFileSync } from 'node:fs';
 import { isIP } from 'node:net';
 import path from 'node:path';
+import { parseSecretKey } from './calendar/secretBox';
 
 // Server configuration from environment variables. Everything has a safe
 // default; invalid values stop the server instead of being silently ignored.
@@ -43,6 +45,31 @@ export interface ServerConfig {
    * blocks DNS-rebinding attacks.
    */
   allowedHosts: string[];
+  /**
+   * Google OAuth client for the family calendar (read-only), set up once per
+   * installation by whoever runs the server. Present only when complete.
+   * The secret is read from a file (SFCC_GOOGLE_CLIENT_SECRET_FILE).
+   */
+  google?: { clientId: string; clientSecret: string; redirectUri: string };
+  /** Settings still needed for Google Calendar (names only, for the setup screen). */
+  googleMissing: string[];
+  /**
+   * 32-byte key that encrypts stored secrets (SFCC_SECRET_KEY_FILE): the
+   * Google refresh token or the private iCal address. Both calendar
+   * connection methods need it.
+   */
+  secretKey?: Buffer;
+  /**
+   * Extra host names a private iCal address may use, besides the built-in
+   * providers (Google, Microsoft, Apple): SFCC_CALENDAR_FEED_HOSTS.
+   */
+  calendarFeedHosts: string[];
+  /**
+   * DEVELOPMENT AND TESTS ONLY: show events from this local file (JSON in
+   * Google's events.list shape, or *.ics) instead of a real connection.
+   * Refused in production.
+   */
+  devCalendarFixture?: string;
 }
 
 export class ConfigError extends Error {}
@@ -142,6 +169,98 @@ export function parseHostHeader(value: string | undefined): { name: string; port
   return null;
 }
 
+/**
+ * SFCC_CALENDAR_FEED_HOSTS: comma-separated host names (no IP addresses,
+ * ports or wildcards) that private iCal addresses may use besides the
+ * built-in providers, e.g. a school's calendar host.
+ */
+function parseFeedHosts(raw: string | undefined): string[] {
+  if (raw === undefined || raw.trim() === '') return [];
+  return raw.split(',').map((e) => {
+    const entry = e.trim().toLowerCase();
+    if (!HOST_NAME.test(entry) || !entry.includes('.') || /^[0-9.]+$/.test(entry) || isLoopbackHost(entry) || entry.endsWith('.localhost')) {
+      throw new ConfigError(`SFCC_CALENDAR_FEED_HOSTS must list public host names (comma-separated, no IP addresses or ports), got "${e.trim()}".`);
+    }
+    return entry;
+  });
+}
+
+/** The path Google sends parents back to; SFCC_GOOGLE_REDIRECT_URI must end with it. */
+export const GOOGLE_CALLBACK_PATH = '/api/calendar/google/callback';
+
+/**
+ * A secret from NAME_FILE (preferred: a Docker secret or a chmod-600 file)
+ * or, failing that, NAME itself. Undefined if neither is set.
+ */
+function readSecret(env: NodeJS.ProcessEnv, name: string, cwd: string): string | undefined {
+  const file = env[`${name}_FILE`];
+  if (file) {
+    let text: string;
+    try {
+      text = readFileSync(path.resolve(cwd, file), 'utf8').trim();
+    } catch {
+      throw new ConfigError(`${name}_FILE points to a file that can't be read: ${file}`);
+    }
+    if (!text) throw new ConfigError(`${name}_FILE is empty: ${file}`);
+    return text;
+  }
+  const value = env[name]?.trim();
+  return value ? value : undefined;
+}
+
+/**
+ * SFCC_GOOGLE_REDIRECT_URI: exactly what is registered in Google Cloud.
+ * Google accepts only HTTPS, or plain HTTP on localhost. The host must be one
+ * this server answers to, or Google's redirect back would be refused (421).
+ */
+function parseRedirectUri(raw: string, allowedHosts: string[]): string {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new ConfigError(`SFCC_GOOGLE_REDIRECT_URI must be a full address such as https://chores.example.com${GOOGLE_CALLBACK_PATH}.`);
+  }
+  const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback)) {
+    throw new ConfigError('SFCC_GOOGLE_REDIRECT_URI must use https:// (Google allows plain http:// only for localhost).');
+  }
+  if (url.pathname !== GOOGLE_CALLBACK_PATH || url.search || url.hash || url.username || url.password) {
+    throw new ConfigError(`SFCC_GOOGLE_REDIRECT_URI must end with exactly ${GOOGLE_CALLBACK_PATH} (no query, fragment or user name).`);
+  }
+  if (!loopback && !allowedHosts.some((h) => parseHostHeader(h)?.name === url.hostname.toLowerCase())) {
+    throw new ConfigError(`Add ${url.hostname} to SFCC_ALLOWED_HOSTS: Google sends parents back to SFCC_GOOGLE_REDIRECT_URI.`);
+  }
+  return url.toString();
+}
+
+function parseGoogle(env: NodeJS.ProcessEnv, cwd: string, allowedHosts: string[]): Pick<ServerConfig, 'google' | 'googleMissing' | 'secretKey'> {
+  const clientId = env.SFCC_GOOGLE_CLIENT_ID?.trim() || undefined;
+  if (clientId && !/^[A-Za-z0-9._-]{1,200}\.apps\.googleusercontent\.com$/.test(clientId)) {
+    throw new ConfigError('SFCC_GOOGLE_CLIENT_ID must be an OAuth client ID ending in .apps.googleusercontent.com.');
+  }
+  const clientSecret = readSecret(env, 'SFCC_GOOGLE_CLIENT_SECRET', cwd);
+  const redirectRaw = env.SFCC_GOOGLE_REDIRECT_URI?.trim();
+  const redirectUri = redirectRaw ? parseRedirectUri(redirectRaw, allowedHosts) : undefined;
+  const keyText = readSecret(env, 'SFCC_SECRET_KEY', cwd);
+  let secretKey: Buffer | undefined;
+  if (keyText !== undefined) {
+    const parsed = parseSecretKey(keyText);
+    if (!parsed) throw new ConfigError('SFCC_SECRET_KEY(_FILE) must hold 32 random bytes as base64 or hex. Generate one with: openssl rand -base64 32');
+    secretKey = parsed;
+  }
+  const missing = [
+    clientId ? null : 'SFCC_GOOGLE_CLIENT_ID',
+    clientSecret ? null : 'SFCC_GOOGLE_CLIENT_SECRET_FILE',
+    redirectUri ? null : 'SFCC_GOOGLE_REDIRECT_URI',
+    secretKey ? null : 'SFCC_SECRET_KEY_FILE',
+  ].filter((m): m is string => m !== null);
+  return {
+    googleMissing: missing,
+    ...(clientId && clientSecret && redirectUri ? { google: { clientId, clientSecret, redirectUri } } : {}),
+    ...(secretKey ? { secretKey } : {}),
+  };
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()): ServerConfig {
   const production = env.NODE_ENV === 'production';
   const timeZone = env.SFCC_TIMEZONE || env.TZ || 'UTC';
@@ -161,6 +280,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.c
     trustProxy: parseTrustProxy(env.SFCC_TRUST_PROXY),
     ...(env.SFCC_STATIC_DIR ? { staticDir: path.resolve(cwd, env.SFCC_STATIC_DIR) } : {}),
     allowedHosts: parseAllowedHosts(env.SFCC_ALLOWED_HOSTS),
+    ...parseGoogle(env, cwd, parseAllowedHosts(env.SFCC_ALLOWED_HOSTS)),
+    calendarFeedHosts: parseFeedHosts(env.SFCC_CALENDAR_FEED_HOSTS),
+    ...(env.SFCC_DEV_CALENDAR_FIXTURE ? { devCalendarFixture: path.resolve(cwd, env.SFCC_DEV_CALENDAR_FIXTURE) } : {}),
   };
   assertSafeConfig(config);
   return config;
@@ -172,6 +294,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.c
  * production and only when bound to a loopback address.
  */
 export function assertSafeConfig(config: ServerConfig): void {
+  if (config.devCalendarFixture && config.production) {
+    throw new ConfigError('SFCC_DEV_CALENDAR_FIXTURE is for development and tests only, not NODE_ENV=production.');
+  }
   if (!config.devUnauthenticatedApi) return;
   if (config.trustProxy.length) {
     throw new ConfigError('SFCC_TRUST_PROXY cannot be used with SFCC_DEV_UNAUTHENTICATED_API (development mode is for this computer only).');

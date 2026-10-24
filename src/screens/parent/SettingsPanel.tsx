@@ -10,6 +10,7 @@ import type { FamilyActions } from '../../state/storeTypes';
 import { useToast } from '../../state/toast';
 import { useAccess } from '../../state/access';
 import { FamilyDataCard } from './FamilyDataCard';
+import { CalendarConnectionCard } from './CalendarConnectionCard';
 
 interface PanelProps {
   data: FamilyData;
@@ -135,6 +136,9 @@ export function SettingsPanel({ data, actions, mode }: PanelProps) {
       )}
 
       <FamilyDataCard actions={actions} mode={mode} />
+
+      {/* The family calendar is fetched by the family server: server builds only. */}
+      {mode === 'api' && <CalendarConnectionCard />}
 
       <section className="settings-card">
         <h2 className="section-subtitle">Privacy &amp; storage</h2>

@@ -26,13 +26,17 @@ export function ChoreItem({ chore, done, onToggle }: ChoreItemProps) {
         <span className="chore-icon" aria-hidden="true">
           {chore.icon}
         </span>
+        {/* The title gets the whole width of its column; the points sit on
+            the row below it, beside the status, so they never cover it. */}
         <span className="chore-text">
           <span className="chore-title">{chore.title}</span>
-          <span className="chore-status">{done ? 'Done!' : 'To do'}</span>
-        </span>
-        <span className="chore-points" aria-hidden="true">
-          <span className="chore-points-star">⭐</span>
-          {chore.points}
+          <span className="chore-meta">
+            <span className="chore-status">{done ? 'Done!' : 'To do'}</span>
+            <span className="chore-points" aria-hidden="true">
+              <span className="chore-points-star">⭐</span>
+              {chore.points}
+            </span>
+          </span>
         </span>
       </button>
     </li>

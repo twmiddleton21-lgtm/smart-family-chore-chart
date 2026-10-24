@@ -2,6 +2,9 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { buildApp } from './app';
 import { AuthService } from './auth/service';
+import { CalendarService, fixtureCalendarSource } from './calendar/calendar';
+import { FamilyCalendar } from './calendar/familyCalendar';
+import { SecretBox } from './calendar/secretBox';
 import { ConfigError, loadConfig } from './config';
 import { SchemaTooNewError } from './db/migrations';
 import { databasePath, openData } from './open';
@@ -21,7 +24,28 @@ async function main(): Promise<void> {
 
   const opened = await openData(config.dataDir, config.timeZone);
   const auth = config.devUnauthenticatedApi ? undefined : new AuthService(opened.db, { setupCode: config.setupCode });
-  const app = buildApp({ config, db: opened.db, store: opened.store, auth, logger: true });
+  // Family calendar: the household's one connection, Google OAuth or a
+  // private iCal address (Settings → Family calendar), or, in development
+  // only, events from a fixture file.
+  const familyCalendar = new FamilyCalendar({
+    db: opened.db,
+    google: config.google ?? null,
+    secretBox: config.secretKey ? new SecretBox(config.secretKey) : null,
+    missing: config.googleMissing,
+    timeZone: config.timeZone,
+    // Built server: the iCal parser's worker is bundled beside this file
+    // (vite.server.config.ts). From source, icalFeed.ts finds its own.
+    feeds: { extraHosts: config.calendarFeedHosts, parser: import.meta.url.endsWith('.js') ? { url: new URL('./icalWorker.js', import.meta.url) } : undefined },
+  });
+  const calendar = config.devCalendarFixture ? CalendarService.fixed(fixtureCalendarSource(config.devCalendarFixture), config.timeZone) : undefined;
+  const app = buildApp({ config, db: opened.db, store: opened.store, auth, familyCalendar, calendar, logger: true });
+  if (config.devCalendarFixture) app.log.warn({ file: config.devCalendarFixture }, 'DEVELOPMENT: family calendar shows events from a local fixture file');
+  if (familyCalendar.configured) app.log.info({ redirectUri: config.google!.redirectUri }, 'Google Calendar integration available (read-only)');
+  // The secret key alone is a complete setup for calendar addresses; only warn about half-done Google settings.
+  else if (config.googleMissing.filter((m) => m !== 'SFCC_SECRET_KEY_FILE').length < 3) {
+    app.log.warn({ missing: config.googleMissing }, 'Google Calendar is partly configured; it stays off until these are set');
+  }
+  if (familyCalendar.feedsAvailable) app.log.info({ extraHosts: config.calendarFeedHosts }, 'Calendar addresses (iCal) available (read-only)');
 
   app.log.info({ database: databasePath(config.dataDir), timeZone: config.timeZone, today: opened.store.today() }, 'data opened');
   if (opened.created) app.log.info('created a new, empty household');
