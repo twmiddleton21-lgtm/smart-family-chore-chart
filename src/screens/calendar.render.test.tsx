@@ -23,8 +23,13 @@ const LONG_TITLE = 'Grandma and Grandad’s anniversary lunch at the riverside g
 const OCTOBER = { start: '2026-09-27', end: '2026-10-31' };
 /** November 2026's grid: Sunday 1 November to Saturday 5 December. */
 const NOVEMBER = { start: '2026-11-01', end: '2026-12-05' };
-/** A day's accessible name, whichever way the test machine's language punctuates dates. */
-const dayLabel = (weekday: string, rest: string) => new RegExp(`aria-label="${weekday},? ${rest}`);
+/** Dates as the page writes them, in this machine's language (GitHub's runners use US English). */
+const fullDate = new Intl.DateTimeFormat(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+const dayAndMonth = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short' });
+const at = (date: string) => new Date(`${date}T12:00:00`);
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** A day's accessible name, optionally followed by more of it (a regular expression). */
+const dayLabel = (date: string, rest = '') => new RegExp(`aria-label="${escapeRegExp(fullDate.format(at(date)))}${rest}`);
 const OK: CalendarResponse = {
   status: 'ok',
   calendarName: 'Rivera Family',
@@ -75,9 +80,9 @@ describe('family calendar page', () => {
     // Five weeks of seven days: 27 September to 31 October.
     expect(html.match(/role="row"/g)).toHaveLength(1 + 5);
     expect(html.match(/role="cell"/g)).toHaveLength(35);
-    expect(cell(html, dayLabel('Sunday', '27 September 2026'))).toContain('month-cell-outside');
-    expect(cell(html, dayLabel('Thursday', '1 October 2026'))).not.toContain('month-cell-outside');
-    expect(cell(html, dayLabel('Thursday', '1 October 2026'))).toMatch(/>1 Oct<\/button>/); // the 1st names its month
+    expect(cell(html, dayLabel('2026-09-27'))).toContain('month-cell-outside');
+    expect(cell(html, dayLabel('2026-10-01'))).not.toContain('month-cell-outside');
+    expect(cell(html, dayLabel('2026-10-01'))).toContain(`>${dayAndMonth.format(at('2026-10-01'))}</button>`); // the 1st names its month ("1 Oct" / "Oct 1")
     expect(html).not.toContain('role="alert"');
   });
 
@@ -91,33 +96,33 @@ describe('family calendar page', () => {
       '2026-11',
     );
     expect(html.match(/role="cell"/g)).toHaveLength(35);
-    const fri = cell(html, dayLabel('Friday', '4 December 2026'));
+    const fri = cell(html, dayLabel('2026-12-04'));
     expect(fri).toContain('month-cell-outside');
     expect(fri).toMatch(/18:00.*Christmas fair/);
   });
 
   it('puts each event in its day’s cell: timed ones with their start time, all-day ones as blocks', () => {
     const html = loaded(OK);
-    const sat = cell(html, dayLabel('Saturday', '24 October 2026 \\(today\\): 1 event"'));
+    const sat = cell(html, dayLabel('2026-10-24', ' \\(today\\): 1 event"'));
     expect(sat).toContain('month-cell-today');
     expect(sat).toContain('aria-current="date"');
     expect(sat).toMatch(/month-event-timed.*<span class="month-event-time">09:30<\/span>.*Football training/);
     expect(sat).toContain('title="09:30 – 11:00: Football training (Park pitches)"');
-    expect(cell(html, dayLabel('Sunday', '25 October 2026'))).toContain(LONG_TITLE); // the whole title is there; the cell shortens it visually
+    expect(cell(html, dayLabel('2026-10-25'))).toContain(LONG_TITLE); // the whole title is there; the cell shortens it visually
     // A four-day all-day event: a block in each of its days, squared where it runs on.
-    for (const [weekday, date, from, on] of [
-      ['Monday', '26', false, true],
-      ['Tuesday', '27', true, true],
-      ['Thursday', '29', true, false],
+    for (const [date, from, on] of [
+      ['2026-10-26', false, true],
+      ['2026-10-27', true, true],
+      ['2026-10-29', true, false],
     ] as const) {
-      const c = cell(html, dayLabel(weekday, `${date} October 2026`));
+      const c = cell(html, dayLabel(date));
       expect(c, date).toContain('month-event-block');
       expect(c.includes('month-event-from-before'), date).toBe(from);
       expect(c.includes('month-event-goes-on'), date).toBe(on);
     }
-    expect(cell(html, dayLabel('Friday', '30 October 2026'))).not.toContain('Half term');
+    expect(cell(html, dayLabel('2026-10-30'))).not.toContain('Half term');
     // Events in the previous month's days at the start of the grid are shown too.
-    expect(cell(html, dayLabel('Monday', '28 September 2026'))).toContain('Harvest festival');
+    expect(cell(html, dayLabel('2026-09-28'))).toContain('Harvest festival');
   });
 
   it('shows "N more" when a day has more events than fit, and never drops one silently', () => {
@@ -131,7 +136,7 @@ describe('family calendar page', () => {
       endTime: `1${i}:30`,
     }));
     const html = loaded({ ...OK, events: busy } as CalendarResponse);
-    const c = cell(html, dayLabel('Wednesday', '14 October 2026: 6 events"'));
+    const c = cell(html, dayLabel('2026-10-14', ': 6 events"'));
     // Three rows before the page has measured the cell: two events and "4 more".
     expect(c.match(/month-event /g)).toHaveLength(2);
     expect(c).toMatch(/<button type="button" class="month-more">4(<!-- -->)? more<\/button>/);
