@@ -226,7 +226,7 @@ docker compose -p sfcc -f compose.server.yaml run --rm app node dist-server/cli.
 docker compose -p sfcc -f compose.server.yaml up -d
 ```
 
-**B. Keep today's data, remove only the calendar tables (0.5.0 or 0.6.0 → 0.4.0).** This keeps everything else as it is now, including sign-ins; only the family calendar connection is lost. Take a backup first (step 1), then:
+**B. Keep today's data, remove only the calendar tables (0.5.0 or 0.6.0 → 0.4.0).** This keeps everything else as it is now, including sign-ins; only the family calendar connection is lost. Take a backup first (step 2 of the update above: back up, and copy the backup off the volume), then:
 
 ```bash
 docker compose -p sfcc -f compose.server.yaml stop app
