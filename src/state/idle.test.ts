@@ -142,6 +142,22 @@ describe('watchIdle', () => {
     }
   });
 
+  it('canFire can hold the idle action back; input while held still counts as activity', () => {
+    let ready = false;
+    const canFire = vi.fn((_idleFor: number) => ready);
+    const { target, onIdle } = start({ canFire });
+    vi.advanceTimersByTime(PARENT_IDLE_MS + 5 * MINUTE);
+    expect(onIdle).not.toHaveBeenCalled();
+    expect(canFire).toHaveBeenLastCalledWith(PARENT_IDLE_MS + 5 * MINUTE);
+    target.dispatchEvent(input()); // held, so this is activity, not a late lock
+    expect(onIdle).not.toHaveBeenCalled();
+    ready = true;
+    vi.advanceTimersByTime(PARENT_IDLE_MS - 15_000);
+    expect(onIdle).not.toHaveBeenCalled(); // the input restarted the idle time
+    vi.advanceTimersByTime(15_000);
+    expect(onIdle).toHaveBeenCalledTimes(1);
+  });
+
   it('stop() removes the timer and listeners: nothing fires after leaving the parent area', () => {
     const { target, onIdle, stop } = start();
     stop();

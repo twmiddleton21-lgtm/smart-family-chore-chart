@@ -56,7 +56,7 @@ export function ImportDialog({ actions, source, data, onClose, onImported }: Imp
   const sourceLabel = source.kind === 'file' ? `the file “${source.name}”` : 'this browser’s saved data';
 
   return (
-    <Modal title="Import family data" onClose={onClose} size="md">
+    <Modal title="Import family data" onClose={onClose} size="md" editing>
       {step.name === 'previewing' && <p role="status">Checking {sourceLabel}…</p>}
 
       {step.name === 'error' && (

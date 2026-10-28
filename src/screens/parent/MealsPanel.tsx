@@ -329,7 +329,7 @@ function WeekEditor({ data, actions, today, childId, childName, monday, previous
   };
 
   return (
-    <form className="settings-card form meal-week" onSubmit={submit} noValidate>
+    <form className="settings-card form meal-week" onSubmit={submit} noValidate data-editing={dirty ? 'true' : undefined}>
       <h2 className="section-subtitle">
         {childName}’s meals · week of {fmtDate(weekFormat, monday)}
         {dirty && <span className="unsaved-tag">Unsaved changes</span>}

@@ -5,6 +5,8 @@ interface ModalProps {
   onClose: () => void;
   children: ReactNode;
   size?: 'sm' | 'md' | 'lg';
+  /** An editor (a form being filled in): the kiosk waits before returning home (state/homeIdle.ts). */
+  editing?: boolean;
 }
 
 /**
@@ -12,7 +14,7 @@ interface ModalProps {
  * focus trapping, the Escape key and a top-layer backdrop for free.
  * Mount it to open; unmount it to close.
  */
-export function Modal({ title, onClose, children, size = 'md' }: ModalProps) {
+export function Modal({ title, onClose, children, size = 'md', editing = false }: ModalProps) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const onCloseRef = useRef(onClose);
@@ -39,6 +41,7 @@ export function Modal({ title, onClose, children, size = 'md' }: ModalProps) {
       ref={ref}
       className={`modal modal-${size}`}
       aria-labelledby={titleId}
+      data-editing={editing ? 'true' : undefined}
       onCancel={(event) => {
         event.preventDefault();
         onCloseRef.current();

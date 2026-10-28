@@ -215,7 +215,7 @@ function ChoreForm({ data, chore, defaultChildId, onSave, onCancel }: ChoreFormP
   };
 
   return (
-    <Modal title={chore ? 'Edit chore' : 'Add a chore'} onClose={onCancel} size="lg">
+    <Modal title={chore ? 'Edit chore' : 'Add a chore'} onClose={onCancel} size="lg" editing>
       <form className="form" onSubmit={submit} noValidate>
         <ErrorSummary errors={errors} />
 

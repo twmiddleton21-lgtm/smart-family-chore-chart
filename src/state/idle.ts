@@ -55,6 +55,12 @@ export interface IdleWatchOptions {
   checkEveryMs?: number;
   /** Which input events count (trusted ones only in the app). */
   isGenuine?: (event: Event) => boolean;
+  /**
+   * Asked once the idle time is reached, with how long it has been idle.
+   * Returning false waits: the watcher keeps checking, and input still
+   * counts as activity. Default: always ready.
+   */
+  canFire?: (idleForMs: number) => boolean;
 }
 
 /** Start watching; returns a function that stops it. */
@@ -72,6 +78,7 @@ export function watchIdle(options: IdleWatchOptions): () => void {
     return other !== null && other > last && other <= now() ? other : last;
   };
   const idle = () => now() - lastActivity() >= idleMs;
+  const ready = () => options.canFire?.(now() - lastActivity()) ?? true;
 
   const fire = () => {
     if (done) return;
@@ -79,13 +86,13 @@ export function watchIdle(options: IdleWatchOptions): () => void {
     onIdle();
   };
   const check = () => {
-    if (idle()) fire();
+    if (idle() && ready()) fire();
   };
   const onInput = (event: Event) => {
     if (!isGenuine(event)) return;
     // Input after an unnoticed idle period (timers paused while the device
     // slept) locks rather than counting as activity.
-    if (idle()) return fire();
+    if (idle() && ready()) return fire();
     last = now();
     if (shared && last - lastShared >= SHARE_EVERY_MS) {
       lastShared = last;

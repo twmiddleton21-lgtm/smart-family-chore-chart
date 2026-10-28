@@ -4,6 +4,7 @@ import type { DataSource } from '../../config';
 import { ScreenTitle } from '../../components/ScreenTitle';
 import type { FamilyActions } from '../../state/useFamilyStore';
 import { ChoresPanel } from './ChoresPanel';
+import { HistoryPanel } from './HistoryPanel';
 import { ChildrenPanel } from './ChildrenPanel';
 import { MealsPanel } from './MealsPanel';
 import { RewardsPanel } from './RewardsPanel';
@@ -11,12 +12,13 @@ import { SettingsPanel } from './SettingsPanel';
 import { AccessPanel } from './AccessPanel';
 import type { Access } from '../../state/access';
 
-export type ParentTab = 'chores' | 'children' | 'meals' | 'rewards' | 'settings' | 'access';
+export type ParentTab = 'chores' | 'history' | 'children' | 'meals' | 'rewards' | 'settings' | 'access';
 type Tab = ParentTab;
 
 const ACCESS_TAB = { id: 'access' as const, label: 'Family access', icon: '🔑' };
 const BASE_TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'chores', label: 'Chores', icon: '🧹' },
+  { id: 'history', label: 'Chore history', icon: '🗓️' },
   { id: 'children', label: 'Children', icon: '👧' },
   { id: 'meals', label: 'School meals', icon: '🍽️' },
   { id: 'rewards', label: 'Rewards', icon: '🎁' },
@@ -43,6 +45,7 @@ export function ParentArea({ data, actions, mode, today, initialTab = 'chores', 
   const exitLabel = access && !access.status.device ? 'Done' : 'Done – lock & exit';
   const tabRefs = useRef<Record<Tab, HTMLButtonElement | null>>({
     chores: null,
+    history: null,
     children: null,
     meals: null,
     rewards: null,
@@ -99,6 +102,7 @@ export function ParentArea({ data, actions, mode, today, initialTab = 'chores', 
 
       <section id={`panel-${tab}`} role="tabpanel" aria-labelledby={`tab-${tab}`} className="tab-panel">
         {tab === 'chores' && <ChoresPanel data={data} actions={actions} />}
+        {tab === 'history' && <HistoryPanel data={data} today={today} />}
         {tab === 'children' && <ChildrenPanel data={data} actions={actions} />}
         {tab === 'meals' && <MealsPanel data={data} actions={actions} today={today} />}
         {tab === 'rewards' && <RewardsPanel data={data} actions={actions} />}

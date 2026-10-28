@@ -5,6 +5,8 @@ import { AUTH_WEB_PORT, E2E_SETUP_CODE } from '../playwright.config';
 // hour passes in milliseconds and nothing depends on real-time waits. The
 // server keeps real time, so its own 30-minute idle timeout never runs out
 // during these tests: only the app's idle lock can close the parent area.
+// On a paired kiosk that is the 2-minute return to the home screen
+// (state/homeIdle.ts); on a parent's own device, the 30-minute lock.
 test.use({ baseURL: `http://localhost:${AUTH_WEB_PORT}` });
 
 const base = `http://localhost:${AUTH_WEB_PORT}`;
@@ -13,6 +15,7 @@ const MINUTE = 60_000;
 const USERNAME = 'sam';
 const PASSWORD = 'e2e correct horse battery';
 const IDLE_MESSAGE = 'Parent area locked and signed out after 30 minutes without activity.';
+const KIOSK_IDLE_MESSAGE = 'Parent area locked and signed out after 2 minutes without activity.';
 
 async function ensureParent(browser: Browser) {
   const ctx = await browser.newContext({ baseURL: base });
@@ -93,16 +96,16 @@ test.beforeAll(async ({ browser }) => {
   await ensureParent(browser);
 });
 
-test('kiosk: 30 minutes without input locks the parent area and ends the session, with no status polling', async ({ browser }) => {
+test('kiosk: 2 minutes without input returns home, locks the parent area and ends the session, with no status polling', async ({ browser }) => {
   const { ctx, page } = await signedInKiosk(browser);
   await openParentArea(page);
   const oldToken = await parentCookie(ctx);
   const status = countRequests(page, '/api/auth/status');
   const logout = countRequests(page, '/api/auth/logout');
 
-  // 29 idle minutes: still open, and the app asked the server nothing (the
+  // 1:45 idle: still open, and the app asked the server nothing (the
   // old idle check polled /api/auth/status, which kept the session alive).
-  await page.clock.runFor(29 * MINUTE);
+  await page.clock.runFor(105_000);
   await expect(parentHeading(page)).toBeVisible();
   expect(status.calls).toBe(0);
 
@@ -110,9 +113,13 @@ test('kiosk: 30 minutes without input locks the parent area and ends the session
   await page.evaluate(() => {
     for (const type of ['pointerdown', 'keydown', 'wheel', 'touchstart']) window.dispatchEvent(new Event(type));
   });
-  await idleUntilLocked(page, 2 * MINUTE);
+  // 2:01 without genuine input. Then wait in real time, so fake time doesn't
+  // run past the sign-out request's own timeout before the server answers.
+  await page.clock.runFor(16_000);
+  await expect(parentHeading(page)).toHaveCount(0);
 
-  await expect(page.getByText(IDLE_MESSAGE)).toBeVisible();
+  await expect(page.locator('main.dashboard')).toBeVisible();
+  await expect(page.getByText(KIOSK_IDLE_MESSAGE)).toBeVisible();
   expect(logout.calls).toBe(1);
   // The server confirmed it: the session is gone, the pairing is kept.
   const after = await serverStatus(ctx);
@@ -164,14 +171,14 @@ test('idle lock when the server can’t confirm the sign-out: stays locked and s
   await openParentArea(page);
   await page.route('**/api/auth/logout', (route) => route.abort('failed'));
 
-  await page.clock.runFor(29 * MINUTE);
+  await page.clock.runFor(105_000);
   await expect(parentHeading(page)).toBeVisible();
-  await idleUntilLocked(page, 2 * MINUTE);
+  await idleUntilLocked(page, 30_000);
 
   const banner = page.getByRole('alert').filter({ hasText: /Couldn’t confirm sign-out with the family server/ });
   await expect(banner).toBeVisible();
   await expect(banner).toContainText('may still be active on the server');
-  await expect(page.getByText(IDLE_MESSAGE)).toHaveCount(0);
+  await expect(page.getByText(KIOSK_IDLE_MESSAGE)).toHaveCount(0);
   // Honest: the server session really is still active, but the parent area needs a password.
   expect((await serverStatus(ctx)).parent).not.toBeNull();
   await dismissMealReminder(page);

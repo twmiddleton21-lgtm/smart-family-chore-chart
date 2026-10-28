@@ -154,7 +154,7 @@ function ChildForm({ child, onSave, onCancel }: ChildFormProps) {
   };
 
   return (
-    <Modal title={child ? `Edit ${child.name}` : 'Add a child'} onClose={onCancel} size="lg">
+    <Modal title={child ? `Edit ${child.name}` : 'Add a child'} onClose={onCancel} size="lg" editing>
       <form className="form" onSubmit={submit} noValidate>
         <ErrorSummary errors={errors} />
         <TextField

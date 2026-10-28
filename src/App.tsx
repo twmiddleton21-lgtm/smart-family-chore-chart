@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { DATA_SOURCE } from './config';
 import { AccessProvider, useAccess, useAccessLoader } from './state/access';
 import { localStorageActivity, PARENT_IDLE_MS, watchIdle } from './state/idle';
+import { editingInProgress, HOME_CHECK_EVERY_MS, HOME_IDLE_MS, mayReturnHome, trackPending } from './state/homeIdle';
 import { useToast } from './state/toast';
 import { SetupScreen } from './screens/auth/SetupScreen';
 import { LockedScreen } from './screens/auth/LockedScreen';
@@ -87,7 +88,11 @@ function StoreShell() {
 }
 
 function AppContent({ store, data }: { store: FamilyStore; data: FamilyData }) {
-  const { actions, today } = store;
+  const { today } = store;
+  // Screens get actions that count their saves still on the way, so the
+  // return home after inactivity never interrupts one (state/homeIdle.ts).
+  const pendingSaves = useRef(0);
+  const actions = useMemo(() => trackPending(store.actions, pendingSaves), [store.actions]);
   const access = useAccess();
   const notify = useToast();
   // Server build with real sign-in (not development mode).
@@ -141,9 +146,9 @@ function AppContent({ store, data }: { store: FamilyStore; data: FamilyData }) {
     else notify('Couldn’t confirm sign-out with the family server. The parent area is locked on this screen.', 'error');
   };
   /** Leave the parent area. On a shared family device this also signs the parent out. */
-  const exitParent = async () => {
+  const exitParent = async (message = 'Parent area locked and signed out.') => {
     goHome();
-    if (signIn && access.status.device && access.status.parent) await endParentSession('Parent area locked and signed out.');
+    if (signIn && access.status.device && access.status.parent) await endParentSession(message);
   };
   const signOut = async () => {
     goHome();
@@ -181,6 +186,33 @@ function AppContent({ store, data }: { store: FamilyStore; data: FamilyData }) {
       shared: localStorageActivity,
     });
   }, [inParentArea, parentSignedIn]);
+
+  // Shared family screens (a paired kiosk, or the browser-only build) return
+  // to the home screen after 2 minutes without input, when the kiosk dims its
+  // display. Leaving the parent area this way is the same as "Done – lock &
+  // exit", so a kiosk also signs the parent out. A parent's own signed-in
+  // device keeps the 30-minute parent idle lock above instead.
+  const homeAfterIdle = !(signIn && access.status.device === null);
+  const awayFromHome = effective.name !== 'dashboard' || gateOpen;
+  const returnHomeAfterIdle = useRef<() => void>(() => undefined);
+  returnHomeAfterIdle.current = () => {
+    setGateOpen(false);
+    setParentTab('chores');
+    if (screen.name === 'parent') void exitParent('Parent area locked and signed out after 2 minutes without activity.');
+    else goHome();
+    window.scrollTo(0, 0);
+  };
+  useEffect(() => {
+    if (!homeAfterIdle || !awayFromHome) return;
+    return watchIdle({
+      idleMs: HOME_IDLE_MS,
+      onIdle: () => returnHomeAfterIdle.current(),
+      target: window,
+      visibility: document,
+      checkEveryMs: HOME_CHECK_EVERY_MS,
+      canFire: (idleFor) => mayReturnHome(idleFor, pendingSaves.current > 0 || editingInProgress(document)),
+    });
+  }, [homeAfterIdle, awayFromHome]);
 
   return (
     <div className="app">

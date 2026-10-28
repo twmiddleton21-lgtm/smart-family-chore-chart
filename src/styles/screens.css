@@ -631,6 +631,69 @@
   margin-left: auto;
 }
 
+/* ---------- Chore history (parent area) ---------- */
+
+.history-intro {
+  margin: 0;
+}
+.history-nav {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.4rem;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.85);
+  border: 2px solid var(--line);
+}
+.history-step {
+  min-width: 3.5rem;
+  font-size: 1.6rem;
+  line-height: 1;
+}
+.history-date {
+  display: grid;
+  justify-items: center;
+  margin: 0;
+  text-align: center;
+  line-height: 1.2;
+}
+.history-date-main {
+  font-size: 1.35rem;
+  font-weight: 900;
+}
+.history-date-full {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+.chip:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.history-today {
+  margin-left: auto;
+}
+.history-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.8rem;
+  border-radius: 999px;
+  border: 2px solid var(--line-strong);
+  background: var(--surface);
+  font-weight: 800;
+  white-space: nowrap;
+}
+.history-status-done {
+  border-color: var(--success);
+  background: var(--success-soft);
+  color: var(--success-ink);
+}
+.history-open .admin-name {
+  color: var(--ink-soft);
+}
+
 /* ---------- School meals: view switch & food options ---------- */
 
 .view-switch {

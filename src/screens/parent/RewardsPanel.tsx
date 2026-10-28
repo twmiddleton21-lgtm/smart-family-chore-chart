@@ -151,7 +151,7 @@ function RewardForm({ reward, onSave, onCancel }: RewardFormProps) {
   };
 
   return (
-    <Modal title={reward ? 'Edit reward' : 'Add a reward'} onClose={onCancel} size="lg">
+    <Modal title={reward ? 'Edit reward' : 'Add a reward'} onClose={onCancel} size="lg" editing>
       <form className="form" onSubmit={submit} noValidate>
         <ErrorSummary errors={errors} />
         <TextField
