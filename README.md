@@ -3,7 +3,7 @@
 ![Conceptual overview of Smart Family Chore Chart: feature highlights, illustrative app screens and a Docker quick start](docs/images/readme-overview.webp)
 
 > **About this image:** it's an AI-generated **conceptual preview**, not a screenshot of the real app. The real screens look different; for example, there's no sidebar, and parents sign in with a username *and* password. Some of its wording doesn't match this project:
-> - The shared-server image (version 0.5.0) is meant for **private networks**, and has known [security limitations](#security-limitations-of-the-shared-server).
+> - The shared-server image (version 0.6.0) is meant for **private networks**, and has known [security limitations](#security-limitations-of-the-shared-server).
 > - There's **no "Forgot your password?" link**; password recovery uses the server command line.
 > - **Children don't have accounts**: parents sign in, and family devices are paired.
 > - The project has **no open-source licence** (see [Licence](#licence)).
@@ -16,16 +16,16 @@ A cheerful family chore chart for a large portrait touchscreen (built and tested
 
 The app comes in two editions:
 
-| | **Browser-only app** (v0.3.0, published) | **Shared family server** (v0.5.0) |
+| | **Browser-only app** (v0.3.0, published) | **Shared family server** (v0.6.0) |
 |---|---|---|
 | Where data lives | In one browser on one device (localStorage) | In one SQLite database on your own server, shared by every device |
 | Parent protection | A client-side PIN (a convenience lock, **not security**) | Parent accounts with passwords, checked by the server |
 | Family devices | Each device has its own separate data | Kiosks are **paired** with one-time codes and share the same data |
-| How to get it | Published image `ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart` (`latest`) | Release image `ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart-server:0.5.0` (a separate package, no `latest`), or build it from `Dockerfile.server` |
-| Status | Released | **Version 0.5.0 for private LAN use; see the security limitations** |
+| How to get it | Published image `ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart` (`latest`) | Release image `ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart-server:0.6.0` (a separate package, no `latest`), or build it from `Dockerfile.server` |
+| Status | Released | **Version 0.6.0 for private LAN use; see the security limitations** |
 
 > **Status of the shared family server.** It's on the `feature/shared-backend` branch and hasn't been merged into `main`.
-> - **Versioned releases only:** the server is published as release [`server-v0.5.0`](https://github.com/twmiddleton21-lgtm/smart-family-chore-chart/releases/tag/server-v0.5.0), a versioned image with no `latest` tag (earlier releases, such as `server-v0.4.0`, remain available). Install it with [`docs/INSTALL-UBUNTU.md`](docs/INSTALL-UBUNTU.md); to update an existing installation, see [Update to a newer release](docs/INSTALL-UBUNTU.md#update-to-a-newer-release).
+> - **Versioned releases only:** the server is published as release [`server-v0.6.0`](https://github.com/twmiddleton21-lgtm/smart-family-chore-chart/releases/tag/server-v0.6.0), a versioned image with no `latest` tag (earlier releases, such as `server-v0.5.0`, remain available). Install it with [`docs/INSTALL-UBUNTU.md`](docs/INSTALL-UBUNTU.md); to update an existing installation, see [Update to a newer release](docs/INSTALL-UBUNTU.md#update-to-a-newer-release).
 > - **Tested locally only:** it has been tested on one computer (linux/amd64) with made-up data. No deployment behind a reverse proxy or Cloudflare Tunnel has been confirmed, and Raspberry Pi (ARM) compatibility is **unverified**.
 > - **No live updates yet:** other devices show changes when they reload or regain focus.
 > - **Not ready for real family data:** see [Security limitations](#security-limitations-of-the-shared-server) before using it with real data.
@@ -101,7 +101,7 @@ One container runs the Fastify server (Node.js 24), which serves both the app an
 
 ### Install and start
 
-**From the release (recommended):** follow [`docs/INSTALL-UBUNTU.md`](docs/INSTALL-UBUNTU.md). It covers copy-and-paste Ubuntu commands, `.env` settings, LAN access from another PC, backups, updates and uninstalling. The image is `ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart-server:0.5.0` (linux/amd64); the [release page](https://github.com/twmiddleton21-lgtm/smart-family-chore-chart/releases/tag/server-v0.5.0) lists its digest and an image archive for hosts that can't pull.
+**From the release (recommended):** follow [`docs/INSTALL-UBUNTU.md`](docs/INSTALL-UBUNTU.md). It covers copy-and-paste Ubuntu commands, `.env` settings, LAN access from another PC, backups, updates and uninstalling. The image is `ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart-server:0.6.0` (linux/amd64); the [release page](https://github.com/twmiddleton21-lgtm/smart-family-chore-chart/releases/tag/server-v0.6.0) lists its digest and an image archive for hosts that can't pull.
 
 **Already running an earlier version?** See [Updating an existing installation](#updating-an-existing-installation) below; you keep all your data.
 
@@ -183,6 +183,8 @@ A paired device can **view the family, tick chores, redeem rewards and dismiss t
   - If two devices edit the same item, the later save is refused and the latest version is shown.
 - **Signing out:** "Sign out", and "Done – lock & exit" on a kiosk, lock the screen at once. They only report success once the server confirms the session ended. If it can't confirm, the screen stays locked and a warning says the session may still be active.
 - **Idle lock:** after **30 minutes without input** in the parent area, it locks and the parent is signed out.
+- **Kiosks return home:** a paired kiosk goes back to the home screen after **2 minutes without input** (the same time as a typical kiosk display-dim timeout), from any screen. Leaving the parent area this way locks it and signs the parent out, like "Done – lock & exit". It waits while someone is typing, has an editor open, has unsaved meal changes or a save on its way, for at most 10 minutes without input. A parent's own (unpaired) device keeps the 30-minute lock instead.
+- **Chore history:** Parent area → **Chore history** shows each child's ticked and unticked chores for any day in the last **42 days**. It only reads: every completion is kept, so points and reward history never change.
 - **Kiosk reload:** reloading a kiosk, or restarting its browser, signs out any parent session it finds, so the parent area always asks for the password again.
 
 ### Bringing data from the browser-only app
@@ -235,7 +237,7 @@ This prints a temporary password and signs that parent out everywhere. Sign in w
 
 For an installation made with [`docs/INSTALL-UBUNTU.md`](docs/INSTALL-UBUNTU.md): the folder `~/sfcc-server`, the Compose project `sfcc` and the data volume `sfcc_chorechart-data`. The update keeps the volume and all family data. The full step-by-step version, with a before-and-after check of each child's points, is [Update to a newer release](docs/INSTALL-UBUNTU.md#update-to-a-newer-release).
 
-**New image:** `ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart-server:0.5.0`
+**New image:** `ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart-server:0.6.0`
 
 ```bash
 cd ~/sfcc-server
@@ -246,7 +248,7 @@ docker compose -p sfcc -f compose.server.yaml exec app node dist-server/cli.js s
 docker compose -p sfcc -f compose.server.yaml cp app:/data/backups/<the …-before-update.db file> ./
 
 # 2. Change only the image line in .env, pull it and recreate the container
-sed -i 's|^SFCC_SERVER_IMAGE=.*|SFCC_SERVER_IMAGE=ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart-server:0.5.0|' .env
+sed -i 's|^SFCC_SERVER_IMAGE=.*|SFCC_SERVER_IMAGE=ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart-server:0.6.0|' .env
 docker pull "$(grep ^SFCC_SERVER_IMAGE= .env | cut -d= -f2)"
 docker compose -p sfcc -f compose.server.yaml up -d
 
@@ -259,13 +261,13 @@ docker compose -p sfcc -f compose.server.yaml exec app node dist-server/cli.js s
 - **Never run `docker compose … down -v` or `docker volume rm sfcc_chorechart-data` during an update.** Both delete the family's data. Plain `down` keeps it.
 - **Always use `-p sfcc`.** Without it, Compose starts a second, empty installation. If you use the Family Calendar add-ons, add the same `-f compose.calendar.yaml` (and `-f compose.google-calendar.yaml`) as before.
 - **What happens at start-up:**
-  - The database upgrades itself once, after an automatic verified backup in `/data/backups`. It only adds tables.
+  - From 0.4.0, the database upgrades itself once, after an automatic verified backup in `/data/backups`. It only adds tables. From 0.5.0 there is nothing to upgrade (both use schema 4).
   - Parents and paired kiosks stay signed in, and your `.env`, the calendar key, host names and any tunnel or proxy are untouched.
 - **Going back:** an older image refuses an upgraded database rather than risk it. The guide's [Going back to the previous version](docs/INSTALL-UBUNTU.md#going-back-to-the-previous-version) has two tested ways:
   - restore the automatic backup; or
   - keep today's data and remove only the calendar tables.
 - **The Family Calendar is optional** and stays off until you set it up: [`docs/GOOGLE-CALENDAR.md`](docs/GOOGLE-CALENDAR.md).
-- **Tested so far:** the 0.4.0 → 0.5.0 upgrade, the failure cases and the rollback were tested on copies with made-up data. The same update with the published image on a real Docker volume **hasn't been verified yet**, which is another reason to keep the backup copy. See also the [security limitations](#security-limitations-of-the-shared-server).
+- **Tested so far:** the 0.4.0 → 0.5.0 upgrade (0.6.0 adds no database changes), the failure cases and the rollback were tested on copies with made-up data. The same update with the published image on a real Docker volume **hasn't been verified yet**, which is another reason to keep the backup copy. See also the [security limitations](#security-limitations-of-the-shared-server).
 
 **Built from source instead?** Take a backup, `git pull`, build a new image with a new tag, set `SFCC_SERVER_IMAGE` to it and run `docker compose -f compose.server.yaml up -d` with the same project name as before.
 

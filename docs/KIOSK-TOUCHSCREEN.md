@@ -70,3 +70,15 @@ Touch is **synthesised** through the browser's DevTools protocol. These tests pr
 2. Start drags on chores, profile cards and buttons: nothing should tick or open.
 3. Tap chores, profiles, Rewards, Redeem, Back and Family Calendar: each should respond on the first tap.
 4. Look for highlighted text after dragging, and for an accidental page reload when pulling down at the top.
+
+## Returning home after 2 minutes without input
+
+From version 0.6.0, a paired kiosk goes back to the home screen after **2 minutes without input** (taps, keys, scrolling), the same time as a typical kiosk display-dim timeout. It closes any open sign-in prompt, and leaving the parent area this way locks it and signs the parent out. It waits while someone is typing, has an editor open, has unsaved meal changes or a save on its way, for at most 10 minutes without input.
+
+The display dimming itself is set up on the kiosk device, not in the app. The app can't see or change it; it only uses the same 2-minute time (`HOME_IDLE_MS` in `src/state/homeIdle.ts`). If you change the device's timeout, change that too.
+
+Check on the device:
+
+1. Open a chore chart and leave it. At about 2 minutes the screen should dim, and the home screen should show when it wakes.
+2. Open the parent area, sign in and leave it: it should go home and ask for the password again.
+3. Start adding a chore, type a name and leave it: it should stay for up to 10 minutes.

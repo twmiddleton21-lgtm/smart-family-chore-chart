@@ -170,7 +170,7 @@ Work in the installation's folder, `~/sfcc-server` in the [installation guide](I
 
 ```bash
 cd ~/sfcc-server
-BASE=https://raw.githubusercontent.com/twmiddleton21-lgtm/smart-family-chore-chart/server-v0.5.0
+BASE=https://raw.githubusercontent.com/twmiddleton21-lgtm/smart-family-chore-chart/server-v0.6.0
 curl -fsSL -O "$BASE/compose.calendar.yaml" -O "$BASE/compose.google-calendar.yaml"   # the add-on files, if you don't have them yet
 mkdir -p secrets
 openssl rand -base64 32 > secrets/sfcc-secret-key.txt   # once only: a new key means connecting the calendar again
