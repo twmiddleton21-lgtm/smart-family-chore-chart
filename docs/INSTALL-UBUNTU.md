@@ -2,7 +2,7 @@
 
 Step-by-step commands for an Ubuntu machine with Docker, for **private testing on your own network** (LAN). Run them in a terminal on that machine (or over SSH).
 
-This is release **0.7.0**: try it with made-up data first. It uses plain HTTP on your LAN, so read [Before you start](#before-you-start).
+This is release **0.7.1**: try it with made-up data first. It uses plain HTTP on your LAN, so read [Before you start](#before-you-start).
 
 Placeholders used below (replace them with your own values):
 
@@ -12,7 +12,7 @@ Placeholders used below (replace them with your own values):
 | `<PORT>` | A free port on that machine for the app | `3080` |
 | `<user>` | Your Ubuntu username (only for SSH) | `alex` |
 
-The release used here is **0.7.0**. The image is `ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart-server:0.7.0`, built for **linux/amd64 (x86_64)** only. The release page lists its exact digest: https://github.com/twmiddleton21-lgtm/smart-family-chore-chart/releases/tag/server-v0.7.0
+The release used here is **0.7.1**. The image is `ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart-server:0.7.1`, built for **linux/amd64 (x86_64)** only. The release page lists its exact digest: https://github.com/twmiddleton21-lgtm/smart-family-chore-chart/releases/tag/server-v0.7.1
 
 ## Before you start
 
@@ -51,7 +51,7 @@ docker ps --format '{{.Names}}\t{{.Ports}}'   # ports used by other containers
 
 ```bash
 mkdir -p ~/sfcc-server && cd ~/sfcc-server
-BASE=https://raw.githubusercontent.com/twmiddleton21-lgtm/smart-family-chore-chart/server-v0.7.0
+BASE=https://raw.githubusercontent.com/twmiddleton21-lgtm/smart-family-chore-chart/server-v0.7.1
 curl -fsSLO "$BASE/compose.server.yaml"
 curl -fsSL "$BASE/.env.example" -o .env
 # Optional, for the Family Calendar (docs/GOOGLE-CALENDAR.md):
@@ -65,7 +65,7 @@ Updating an existing installation? Don't repeat this step (it would replace your
 Edit `.env` (for example `nano .env`) and set at least:
 
 ```ini
-SFCC_SERVER_IMAGE=ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart-server:0.7.0
+SFCC_SERVER_IMAGE=ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart-server:0.7.1
 SFCC_BIND_ADDRESS=<LAN-IP>
 SFCC_HOST_PORT=<PORT>
 SFCC_ALLOWED_HOSTS=<LAN-IP>
@@ -174,7 +174,7 @@ docker compose -p sfcc -f compose.server.yaml cp app:/data/backups/<the …-befo
 **4. Switch to the new version and start it.** This changes only the image line in `.env`:
 
 ```bash
-sed -i 's|^SFCC_SERVER_IMAGE=.*|SFCC_SERVER_IMAGE=ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart-server:0.7.0|' .env
+sed -i 's|^SFCC_SERVER_IMAGE=.*|SFCC_SERVER_IMAGE=ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart-server:0.7.1|' .env
 grep ^SFCC_SERVER_IMAGE= .env
 docker pull "$(grep ^SFCC_SERVER_IMAGE= .env | cut -d= -f2)"
 docker compose -p sfcc -f compose.server.yaml up -d
@@ -189,7 +189,7 @@ curl -s http://<LAN-IP>:<PORT>/readyz; echo                            # {"statu
 ```
 
 Then run the command from step 1 again, with `family-after-update.txt` at the end instead of `family-before-update.txt`. Compare the two files with `diff family-before-update.txt family-after-update.txt`:
-- **Expected differences:** from 0.6.0 (or 0.5.0), only the **state version, which goes up by 1**: the first start of 0.7.0 saves the upgraded family data as a new version. From 0.4.0, also `schema 2` becoming `schema 4`. The family name, every child's points and chores, and the totals must match.
+- **Expected differences:** from 0.7.0, **none at all** (0.7.1 only changes the seasonal animations). From 0.6.0 (or 0.5.0), only the **state version, which goes up by 1**: the first start of 0.7.0 or later saves the upgraded family data as a new version. From 0.4.0, also `schema 2` becoming `schema 4`. The family name, every child's points and chores, and the totals must match.
 - **If the family changed in between** (for example a chore was ticked), the state version and those numbers move with it.
 
 Finally, open the app as usual and check the children and their points.
@@ -197,8 +197,9 @@ Finally, open the app as usual and check the children and their points.
 - **Always `-p sfcc`.** Without it, Compose starts a second, empty installation (see [step 5](#5-get-the-image-and-start)).
 - **With the Family Calendar add-ons:** use the same `-f compose.calendar.yaml` (and `-f compose.google-calendar.yaml`) as when you set them up.
 - **What happens at start-up:**
-  - **From 0.6.0 or 0.5.0 (database schema 4 already):** 0.7.0 upgrades the **family data format** once (v3 → v4), after an automatic backup `/data/backups/chorechart-<time>-pre-format-v3-to-v4.db`. The log says `family data format upgraded (backup taken first)`. It only adds the theme settings (all themes on, default dates), an empty birthday list and empty birthday awards; every existing record is kept exactly. The database schema stays at 4.
-  - **If the stored data has anything invalid**, 0.7.0 refuses to upgrade it, changes nothing and doesn't start (the log shows the reason). Set the image line back to your previous version and start it: the data is untouched.
+  - **From 0.7.0:** nothing to upgrade. 0.7.1 changes only the seasonal animations: no server, data-format or database changes.
+  - **From 0.6.0 or 0.5.0 (database schema 4 already):** 0.7.0 and later upgrade the **family data format** once (v3 → v4), after an automatic backup `/data/backups/chorechart-<time>-pre-format-v3-to-v4.db`. The log says `family data format upgraded (backup taken first)`. It only adds the theme settings (all themes on, default dates), an empty birthday list and empty birthday awards; every existing record is kept exactly. The database schema stays at 4.
+  - **If the stored data has anything invalid**, the new version refuses to upgrade it, changes nothing and doesn't start (the log shows the reason). Set the image line back to your previous version and start it: the data is untouched.
   - Coming from 0.4.0, the database is also upgraded once from schema 2 to 4, after writing an automatic, verified backup, for example `/data/backups/chorechart-<time>-pre-migration-v2-to-v4.db`.
   - Upgrades only add. Nothing existing is changed or deleted, and if an upgrade can't finish, the database stays as it was.
   - **Going back to 0.6.0 afterwards needs that backup** (below): 0.6.0 can't read the v4 format.
@@ -212,7 +213,14 @@ Finally, open the app as usual and check the children and their points.
 
 ### Going back to the previous version
 
-**From 0.7.0 to 0.6.0:** 0.7.0 upgrades the family data format once (v3 → v4) after an automatic backup, `/data/backups/chorechart-<time>-pre-format-v3-to-v4.db`. 0.6.0 refuses to start on the upgraded data (it exits with "Family data has an unusable shape or version") rather than silently dropping birthdays and birthday points, so go back by restoring that backup. Changes made since the update (chores ticked, birthdays, theme settings) are lost. Restoring signs everyone out: parents sign in again and kiosks are paired again with new codes:
+**From 0.7.1 to 0.7.0:** both use the same data format and database, so change only the image line back and start it. Data and sign-ins are kept:
+
+```bash
+sed -i 's|^SFCC_SERVER_IMAGE=.*|SFCC_SERVER_IMAGE=ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart-server:0.7.0|' .env
+docker compose -p sfcc -f compose.server.yaml up -d      # add the same -f compose.calendar.yaml … as before
+```
+
+**From 0.7.x to 0.6.0:** 0.7.0 and later upgrade the family data format once (v3 → v4) after an automatic backup, `/data/backups/chorechart-<time>-pre-format-v3-to-v4.db`. 0.6.0 refuses to start on the upgraded data (it exits with "Family data has an unusable shape or version") rather than silently dropping birthdays and birthday points, so go back by restoring that backup. Changes made since the update (chores ticked, birthdays, theme settings) are lost. Restoring signs everyone out: parents sign in again and kiosks are paired again with new codes:
 
 ```bash
 docker compose -p sfcc -f compose.server.yaml stop app
@@ -223,7 +231,7 @@ docker compose -p sfcc -f compose.server.yaml up -d
 
 Rehearsed with the real 0.6.0 and 0.7.0 code on throwaway data (2026-11-01): 0.7.0 upgraded the data, keeping every record; 0.6.0 then refused it; 0.6.0's own `cli.js restore` of the `pre-format-v3-to-v4` backup succeeded (keeping the upgraded database as `/data/backups/replaced-<time>.db`); and 0.6.0 started with exactly the family data from before the update. Not yet tried inside Docker on a real volume, so keep the backup copy from step 2 of the update.
 
-**From 0.6.0 to 0.5.0** (only before updating to 0.7.0): both use the same database (schema 4) and data format, so change only the image line back and start it. Data and sign-ins are kept:
+**From 0.6.0 to 0.5.0** (only before updating to 0.7.x): both use the same database (schema 4) and data format, so change only the image line back and start it. Data and sign-ins are kept:
 
 ```bash
 sed -i 's|^SFCC_SERVER_IMAGE=.*|SFCC_SERVER_IMAGE=ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart-server:0.5.0|' .env
@@ -241,7 +249,7 @@ docker compose -p sfcc -f compose.server.yaml run --rm app node dist-server/cli.
 docker compose -p sfcc -f compose.server.yaml up -d
 ```
 
-**B. Keep today's data, remove only the calendar tables (0.5.0 or 0.6.0 → 0.4.0; from 0.7.0, first go back to 0.6.0 as above).** This keeps everything else as it is now, including sign-ins; only the family calendar connection is lost. Take a backup first (step 2 of the update above: back up, and copy the backup off the volume), then:
+**B. Keep today's data, remove only the calendar tables (0.5.0 or 0.6.0 → 0.4.0; from 0.7.x, first go back to 0.6.0 as above).** This keeps everything else as it is now, including sign-ins; only the family calendar connection is lost. Take a backup first (step 2 of the update above: back up, and copy the backup off the volume), then:
 
 ```bash
 docker compose -p sfcc -f compose.server.yaml stop app
@@ -262,7 +270,7 @@ Never use `docker compose … down -v` or `docker volume rm` to go back: they de
 docker compose -p sfcc -f compose.server.yaml stop        # stop (keeps everything)
 docker compose -p sfcc -f compose.server.yaml start       # start again
 docker compose -p sfcc -f compose.server.yaml down        # remove the container; KEEPS the data volume
-docker image rm ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart-server:0.7.0   # optional
+docker image rm ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart-server:0.7.1   # optional
 ```
 
 `down` (without `-v`) never deletes the database. Starting it again with `up -d` brings the same data back.
@@ -276,15 +284,15 @@ docker volume rm sfcc_chorechart-data
 
 ## No registry access: load the image archive
 
-The release page has `smart-family-chore-chart-server-0.7.0-linux-amd64.tar.gz` and its `.sha256`.
+The release page has `smart-family-chore-chart-server-0.7.1-linux-amd64.tar.gz` and its `.sha256`.
 
 ```bash
 cd ~/sfcc-server
-REL=https://github.com/twmiddleton21-lgtm/smart-family-chore-chart/releases/download/server-v0.7.0
-curl -fLO "$REL/smart-family-chore-chart-server-0.7.0-linux-amd64.tar.gz"
-curl -fLO "$REL/smart-family-chore-chart-server-0.7.0-linux-amd64.tar.gz.sha256"
-sha256sum -c smart-family-chore-chart-server-0.7.0-linux-amd64.tar.gz.sha256
-docker load -i smart-family-chore-chart-server-0.7.0-linux-amd64.tar.gz
+REL=https://github.com/twmiddleton21-lgtm/smart-family-chore-chart/releases/download/server-v0.7.1
+curl -fLO "$REL/smart-family-chore-chart-server-0.7.1-linux-amd64.tar.gz"
+curl -fLO "$REL/smart-family-chore-chart-server-0.7.1-linux-amd64.tar.gz.sha256"
+sha256sum -c smart-family-chore-chart-server-0.7.1-linux-amd64.tar.gz.sha256
+docker load -i smart-family-chore-chart-server-0.7.1-linux-amd64.tar.gz
 ```
 
 Then continue with step 5, skipping `docker pull`. You can also copy the archive to the machine any other way, for example with `scp` from another computer. [DOCKER-TRANSFER.md](DOCKER-TRANSFER.md) describes moving a locally built image.
