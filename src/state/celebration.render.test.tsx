@@ -211,12 +211,29 @@ describe('foreground celebration layer', () => {
     expect(backdrop(html)).not.toContain('firework');
   });
 
-  it('keeps Christmas snow behind; Santa is planned after the page has started, not drawn up front', () => {
+  it('puts Christmas snow in its own layer over the content and under the flying pieces; Santa is planned, not drawn up front', () => {
     const html = layers('2026-12-10', true);
-    expect(backdrop(html)).toContain('snow-sheet');
+    // Order in the page: backdrop, frame, ambient (snow), foreground.
+    const at = (cls: string) => html.indexOf(`class="${cls}`);
+    expect(at('celebration-frame')).toBeLessThan(at('celebration-ambient'));
+    expect(at('celebration-ambient')).toBeLessThan(at('celebration-foreground'));
+    const ambient = html.slice(at('celebration-ambient'), at('celebration-foreground'));
+    expect(ambient.match(/class="snow-sheet snow-(far|mid|near)"/g)).toHaveLength(3);
+    // Falling snow is not behind the content any more (the static snowbank in the ground strip is).
+    expect(backdrop(html)).not.toMatch(/snow-sheet|snowflake/);
+    expect(backdrop(html)).toContain('snow-drift');
+    expect(foreground(html)).not.toContain('snow-sheet');
     expect(html).not.toContain('santa-flyby');
     // Birthday balloons and confetti fly in front too.
     expect(foreground(html).match(/class="floater-sway balloon-rise"/g)).toHaveLength(6);
+  });
+});
+
+describe('ambient layer only where there is snow', () => {
+  it('is drawn for Christmas only (Halloween keeps its bats in front and nothing ambient)', () => {
+    const halloween = renderToStaticMarkup(<CelebrationLayers view={celebrationView(family(), '2026-10-31', [], null)} />);
+    expect(halloween).not.toContain('celebration-ambient');
+    expect(halloween.match(/data-testid="bat"/g)).toHaveLength(7);
   });
 });
 
@@ -238,6 +255,28 @@ describe('motion and touch safety (stylesheet)', () => {
     const block = css.slice(css.indexOf('@media (prefers-reduced-motion: reduce)'));
     for (const sel of ['.celebration-layers *', '.season-banner *', '.birthday-banner *', '.birthday-celebration *']) expect(block).toContain(sel);
     expect(block).toContain('animation: none !important');
+  });
+
+  it('stacks page background < seasonal background < content < snow < flying pieces < controls < preview bar < messages', () => {
+    const z = (name: string) => Number(new RegExp(`--z-${name}:\\s*(-?\\d+);`).exec(css)?.[1]);
+    const order = ['celebration-back', 'celebration-ambient', 'celebration-front', 'controls', 'preview-bar', 'toast'].map(z);
+    for (const v of order) expect(Number.isFinite(v)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    // The back layers sit below the page content (negative), above the canvas background.
+    expect(z('celebration-back')).toBeLessThan(-1);
+    // .app must NOT become a stacking context, or every control is trapped under the decorations
+    // and the work panel (z-index -1) drops behind the sky.
+    const app = /:root\[data-celebration\] \.app \{([^}]*)\}/.exec(css)?.[1] ?? '';
+    expect(app).toContain('position: relative');
+    expect(app).not.toContain('z-index');
+    expect(css).toMatch(/\.celebration-ambient \{[^}]*z-index: var\(--z-celebration-ambient\)/);
+    expect(css).toMatch(/\.celebration-foreground \{[^}]*z-index: var\(--z-celebration-front\)/);
+    expect(css).toMatch(/\.celebration-backdrop \{[^}]*z-index: var\(--z-celebration-back\)/);
+    // Controls are lifted with zero specificity, and the children's big tiles stay content.
+    const lift = /:where\(:root\[data-celebration\] \.app :is\(([^)]*)\):not\(([^)]*)\)\) \{([^}]*)\}/.exec(css);
+    expect(lift?.[1]).toContain('button');
+    expect(lift?.[2]).toBe('.profile-card, .chore');
+    expect(lift?.[3]).toContain('z-index: var(--z-controls)');
   });
 
   it('never lets decorations take taps, and animates only transform and opacity', () => {

@@ -277,16 +277,29 @@ test.describe('browser-only build in December (fake clock)', () => {
     await expectThemed(page, 'christmas', 'child');
     await expect(page.getByTestId('season-banner')).toContainText('15 days to Christmas!');
 
-    // Santa flies now and then on his own schedule: not at once, then within 45 s to 2.5 minutes.
+    // Santa flies while someone is using the screen: not at once, then within 15-40 s of it waking.
     const santa = page.getByTestId('santa-flyby');
-    await page.clock.runFor(40 * 1000);
+    const waitForSanta = async (maxSeconds: number) => {
+      for (let s = 0; s < maxSeconds && (await santa.count()) === 0; s++) await page.clock.runFor(1000);
+    };
+    await page.clock.runFor(14 * 1000);
     await expect(santa).toHaveCount(0);
-    for (let s = 40; s <= 160 && (await santa.count()) === 0; s += 5) await page.clock.runFor(5000);
+    await waitForSanta(27);
+    await expect(santa).toHaveCount(1);
+    await expect(santa.getByTestId('reindeer')).toHaveCount(4);
+    await page.locator('.santa-cross').evaluate((el) => el.getAnimations()[0]!.finish());
+    await expect(santa).toHaveCount(0); // removed when it has crossed
+    // Then nobody touches the kiosk (its display dims after 2 minutes): no fly-by over the dim
+    // screen, even though the next one falls due (4-10 minutes after the last).
+    await page.mouse.click(5, 5);
+    await page.clock.runFor(9 * 60 * 1000 + 50 * 1000);
+    await expect(santa).toHaveCount(0);
+    await expect(page.locator('.celebration-layers')).not.toHaveClass(/celebration-paused/);
+    // A child taps: Santa comes within 40 s, not after another long gap.
+    await page.mouse.click(5, 5);
+    await waitForSanta(41);
     await expect(santa).toHaveCount(1);
     await page.locator('.santa-cross').evaluate((el) => el.getAnimations()[0]!.finish());
-    await expect(santa).toHaveCount(0);
-    // The next is minutes away, not straight after.
-    await page.clock.runFor(3 * 60 * 1000);
     await expect(santa).toHaveCount(0);
 
     // Return home after 2 minutes is unchanged by the theme.
@@ -317,5 +330,12 @@ test.describe('browser-only build in December (fake clock)', () => {
     await expect(santa).toHaveCount(0);
     await page.mouse.click(5, 5);
     await expect(page.locator('.celebration-layers')).not.toHaveClass(/celebration-paused/);
+    expect(await page.locator('.snow-sheet').first().evaluate((el) => getComputedStyle(el).animationPlayState)).toBe('running');
+    // Waking the kiosk after the pause: Santa comes soon, so the child who tapped sees him.
+    await page.clock.runFor(14 * 1000);
+    await expect(santa).toHaveCount(0);
+    await waitForSanta(27);
+    await expect(santa).toHaveCount(1);
+    await expect(page.locator('.celebration-foreground [data-testid="santa-flyby"]')).toHaveCount(1);
   });
 });

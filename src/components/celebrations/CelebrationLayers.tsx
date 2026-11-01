@@ -27,15 +27,19 @@ import { SantaFlyby } from './SantaFlyby';
 // The seasonal decorations, drawn ONCE for the whole app by CelebrationHost
 // (state/celebrationHost.tsx), on every screen.
 //
-//   backdrop    fixed, behind the app: the themed sky, snow, the moon and
-//               ghosts, Easter eggs, twinkling sparkles and the ground strip.
+//   backdrop    fixed, behind the app: the themed sky, the moon and ghosts,
+//               Easter eggs, twinkling sparkles and the ground strip.
 //   frame       fixed, behind the app: the garland in the free band the
 //               screens leave at the top of the page, and the corner pieces.
-//   foreground  fixed, IN FRONT of the app: the things that fly or float
+//   ambient     fixed, IN FRONT of the page content: falling snow, so it
+//               shows over cards and panels, not just in the gaps.
+//   foreground  fixed, in front of the snow: the things that fly or float
 //               across (bats, hearts and roses, fireworks and confetti,
 //               birthday balloons, Santa's sleigh), so a translucent panel
-//               never hides them. Below the preview bar, messages and every
-//               dialog (see the stacking order in styles/celebrations.css).
+//               never hides them.
+// Navigation and action buttons, form fields, the preview bar, messages and
+// every dialog stay above all of them (see the stacking order in
+// styles/celebrations.css).
 //
 // No layer takes pointer events, so decorations never get in the way of a
 // tap, a swipe or scrolling. Every animation uses fixed keyframes
@@ -344,7 +348,6 @@ function Backdrop({ themeId }: { themeId: ThemeId | null }) {
           </span>
         </>
       )}
-      {themeId === 'christmas' && <Snow />}
       {themeId === 'easter' && (
         <Floaters count={7} seed={5} className="egg-float" render={(i) => <EasterEgg {...EGG_STYLES[i % EGG_STYLES.length]!} />} />
       )}
@@ -444,6 +447,11 @@ export function CelebrationLayers({ view, paused = false }: { view: CelebrationV
     <div className={`celebration-layers${paused ? ' celebration-paused' : ''}`} data-theme={themeId ?? 'birthday'} aria-hidden="true">
       <Backdrop themeId={themeId} />
       <Frame themeId={themeId} birthday={birthday} />
+      {themeId === 'christmas' && (
+        <div className="celebration-ambient" data-testid="celebration-ambient">
+          <Snow />
+        </div>
+      )}
       <Foreground themeId={themeId} birthday={birthday} preview={view.preview !== null} paused={paused} />
     </div>
   );

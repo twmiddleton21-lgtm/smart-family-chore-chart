@@ -229,7 +229,8 @@ test('Halloween: glowing, flickering pumpkins and bats with flapping wings on di
   // In the foreground layer, in front of the app; cobwebs and spiders kept behind.
   await expect(page.locator('.celebration-foreground [data-testid="bat"]')).toHaveCount(7);
   await expect(page.locator('.celebration-backdrop [data-testid="bat"]')).toHaveCount(0);
-  expect(await page.locator('.celebration-backdrop').evaluate((el) => getComputedStyle(el).zIndex)).toBe('0');
+  expect(await page.locator('.celebration-backdrop').evaluate((el) => getComputedStyle(el).zIndex)).toBe('-2');
+  await expect(page.locator('.celebration-ambient')).toHaveCount(0); // no snow at Halloween
   await expect(page.locator('.deco-web')).toHaveCount(2);
   expect(await running(page, '.spider-crawl')).toEqual(['spider-crawl']);
   expect(await reachable(page, /Open Alex's chore chart/)).toBe(true);
@@ -250,6 +251,28 @@ test('Christmas: fairy lights glow in turn and snow keeps falling', async ({ pag
 
   expect((await running(page, '.snow-sheet')).sort()).toEqual(['snow-far', 'snow-mid', 'snow-near']);
   expect(await changesOverTime(page, '.snow-sheet', 'transform', 2)).toBe(true);
+
+  // Snow falls in front of the page content (its own layer), not behind the cards.
+  await expect(page.locator('.celebration-ambient .snow-sheet')).toHaveCount(3);
+  await expect(page.locator('.celebration-backdrop .snow-sheet')).toHaveCount(0);
+  expect(await page.locator('.celebration-ambient').evaluate((el) => getComputedStyle(el).zIndex)).toBe('10');
+  expect(await inRootStackingOrder(page, '.celebration-ambient')).toEqual([]);
+  const viewport = page.viewportSize()!;
+  expect(await page.locator('.celebration-ambient').boundingBox()).toEqual({ x: 0, y: 0, width: viewport.width, height: viewport.height });
+  // Painted over a child's profile card (content)...
+  await page.getByRole('button', { name: /Open Alex's chore chart/ }).scrollIntoViewIfNeeded();
+  expect(await topAt(page, '.celebration-ambient', '.profile-card')).toBe('layer');
+  // ...but under the controls: the preview bar's button and the Parent area button stay on top.
+  expect(await topAt(page, '.celebration-ambient', '.preview-bar button')).toBe('target');
+  await page.evaluate(() => window.scrollTo(0, 0));
+  expect(await topAt(page, '.celebration-ambient', '.topbar .button')).toBe('target');
+  // And it never takes a tap or a scroll.
+  expect(
+    await page.locator('.celebration-ambient, .celebration-ambient *').evaluateAll((els) => els.filter((el) => getComputedStyle(el).pointerEvents !== 'none').length),
+  ).toBe(0);
+  await page.mouse.wheel(0, 400);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+  await page.mouse.wheel(0, -2000);
   await expect(page.locator('.deco-corner')).toHaveCount(2); // holly
   await expect(page.getByTestId('christmas-countdown')).toBeVisible();
   expect(await reachable(page, /Open Alex's chore chart/)).toBe(true);
@@ -287,6 +310,43 @@ test('Christmas: Santa and his reindeer fly across now and then, and are gone in
   const p0 = await progress();
   await page.waitForTimeout(700);
   expect(await progress()).toBeGreaterThan(p0);
+  // Mid-crossing, the complete group (sleigh with Santa and his sack, four reindeer,
+  // Rudolph's glowing nose) is on screen, drawn in front of the page content.
+  const seek = (at: number | null) =>
+    page.locator('.santa-cross, .santa-arc').evaluateAll(
+      (els, t) =>
+        els.forEach((el) =>
+          el.getAnimations().forEach((a) => {
+            if (t === null) a.play();
+            else {
+              a.pause();
+              a.currentTime = Number(a.effect!.getTiming().duration) * t;
+            }
+          }),
+        ),
+      at,
+    );
+  await seek(0.5);
+  const vp = page.viewportSize()!;
+  for (const sel of ['.santa-sleigh', '.reindeer', '.rudolph-glow']) {
+    for (const b of await page.locator(sel).evaluateAll((els) => els.map((el) => el.getBoundingClientRect().toJSON() as DOMRect))) {
+      expect(b.width, sel).toBeGreaterThan(10);
+      expect(b.left, sel).toBeGreaterThanOrEqual(-1);
+      expect(b.right, sel).toBeLessThanOrEqual(vp.width + 1);
+      expect(b.top, sel).toBeGreaterThanOrEqual(0);
+      expect(b.bottom, sel).toBeLessThanOrEqual(vp.height);
+    }
+  }
+  await expect(page.locator('.rudolph-glow')).toHaveCount(1);
+  expect(await page.locator('.santa-sleigh').evaluate((el) => el.querySelectorAll('path, rect, circle, ellipse').length)).toBeGreaterThan(10);
+  for (const sel of ['.celebration-foreground', '.santa-flyby', '.santa-sleigh']) {
+    expect(await page.locator(sel).first().evaluate((el) => getComputedStyle(el).visibility), sel).toBe('visible');
+  }
+  expect(await page.locator('.celebration-foreground').evaluate((el) => getComputedStyle(el).opacity)).toBe('1');
+  expect(await inRootStackingOrder(page, '.celebration-foreground')).toEqual([]);
+  // Nothing on the page is painted over the middle reindeer.
+  expect(await topAt(page, '.celebration-foreground', '.reindeer', 1)).toBe('target');
+  await seek(null);
   // Reaching the far side ends the fly-by: it's removed from the page.
   await page.locator('.santa-cross').evaluate((el) => el.getAnimations()[0]!.finish());
   await expect(santa).toHaveCount(0);
@@ -296,6 +356,34 @@ test('Christmas: Santa and his reindeer fly across now and then, and are gone in
   expect(await page.locator('.celebration-foreground').evaluate((el) => el.childElementCount)).toBe(0);
   await page.getByRole('button', { name: 'Back to scheduled theme' }).click();
 });
+
+/**
+ * What is painted on top at the middle of the `nth` element matching
+ * `target`, if the decoration layer `layer` took pointer events (it never
+ * does: this only asks the browser for the paint order, then puts
+ * everything back). Returns 'layer', 'target', or the class of whatever
+ * else is on top.
+ */
+async function topAt(page: Page, layer: string, target: string, nth = 0): Promise<string> {
+  return page.evaluate(
+    ([layerSel, targetSel, i]) => {
+      const el = document.querySelectorAll(targetSel)[Number(i)] as HTMLElement;
+      const r = el.getBoundingClientRect();
+      const x = r.left + r.width / 2;
+      const y = r.top + r.height / 2;
+      const style = document.createElement('style');
+      style.textContent = `${layerSel}, ${layerSel} * { pointer-events: auto !important; }`;
+      document.head.append(style);
+      const hit = document.elementFromPoint(x, y);
+      style.remove();
+      if (!hit) return 'nothing';
+      if (el.contains(hit)) return 'target';
+      if (hit.closest(layerSel)) return 'layer';
+      return String(hit.className);
+    },
+    [layer, target, String(nth)],
+  );
+}
 
 /** Every ancestor up to <html> leaves the element in the page's main stacking order, unclipped. */
 async function inRootStackingOrder(page: Page, selector: string) {
@@ -321,17 +409,23 @@ test('flying pieces are a foreground layer: in front of the app, behind the prev
   await expect(page.locator('.celebration-foreground .rose-rise')).toHaveCount(4);
   expect((await running(page, '.celebration-foreground .rise-column')).length).toBe(14);
 
-  // The stacking order: backdrop 0 < app 1 < foreground 20 < preview bar 40 < messages 50, all in the page's main order.
-  const z = async (sel: string) => Number(await page.locator(sel).first().evaluate((el) => getComputedStyle(el).zIndex));
-  expect(await z('.celebration-backdrop')).toBe(0);
-  expect(await z('.celebration-frame')).toBe(0);
-  expect(await z('.app')).toBe(1);
+  // The stacking order, all in the page's main order: seasonal background -2 < content (.app has no z-index of
+  // its own, so it isn't a stacking context) < snow 10 < flying pieces 20 < controls 30 < preview bar 40 < messages 50.
+  const zOf = (sel: string) => page.locator(sel).first().evaluate((el) => getComputedStyle(el).zIndex);
+  const z = async (sel: string) => Number(await zOf(sel));
+  expect(await z('.celebration-backdrop')).toBe(-2);
+  expect(await z('.celebration-frame')).toBe(-2);
+  expect(await zOf('.app')).toBe('auto');
   expect(await z('.celebration-foreground')).toBe(20);
+  expect(await z('.topbar .button')).toBe(30);
+  expect(await zOf('.profile-card')).toBe('auto'); // the children's tiles are content
   expect(await z('.preview-bar')).toBe(40);
   expect(await z('.toast-region')).toBe(50);
-  for (const sel of ['.celebration-foreground', '.app', '.preview-bar', '.toast-region']) {
+  for (const sel of ['.celebration-foreground', '.app', '.topbar .button', '.preview-bar', '.toast-region']) {
     expect(await inRootStackingOrder(page, sel), sel).toEqual([]);
   }
+  // Paint order at real points: a heart over a profile card, the Parent area button over the hearts.
+  expect(await topAt(page, '.celebration-foreground', '.topbar .button')).toBe('target');
   // Covers the whole screen, clipped only by its edges.
   const box = await page.locator('.celebration-foreground').boundingBox();
   expect(box).toEqual({ x: 0, y: 0, width: page.viewportSize()!.width, height: page.viewportSize()!.height });

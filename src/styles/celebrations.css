@@ -8,14 +8,23 @@
      data-celebration-surface  child | work (work = parent area, calendar)
    so every screen, sign-in included, is themed without doing anything.
 
-   Stacking order, back to front (the --z-* scale below; nothing else in
-   the app sets a z-index outside its own component):
-     --z-celebration-back   .celebration-backdrop (sky, snow, ghosts, eggs,
-                            ground) and .celebration-frame (garland, corners)
-     --z-app                .app: every screen and its content
+   Stacking order, back to front, all in the page's ROOT stacking context
+   (the --z-* scale below; nothing else in the app sets a z-index outside
+   its own component):
+     (canvas)               the page background (body's, drawn on the canvas)
+     --z-celebration-back   .celebration-backdrop (sky, ghosts, eggs, ground)
+                            and .celebration-frame (garland, corners)
+     -1                     the readable panel on work screens (.screen::before)
+     auto                   .app: every screen and its content (cards, text,
+                            profile tiles, chore cards). .app is deliberately
+                            NOT a stacking context while a theme shows, so the
+                            controls below can rise above the decorations.
+     --z-celebration-ambient  .celebration-ambient: falling snow, over the content
      --z-celebration-front  .celebration-foreground: what flies or floats
                             across (bats, hearts and roses, fireworks,
-                            confetti, balloons, Santa), in front of panels
+                            confetti, balloons, Santa)
+     --z-controls           navigation and action buttons, tabs, switches,
+                            form fields inside .app
      --z-preview-bar        the preview bar (placed at the end of <body>)
      --z-toast              messages (components.css)
      top layer              every dialog (native <dialog>.showModal(): PIN
@@ -34,9 +43,12 @@
    ============================================================ */
 
 :root {
-  --z-celebration-back: 0;
-  --z-app: 1;
+  /* Negative: behind .app, whose content is not positioned above them by a
+     z-index of its own (see .app below). Above the canvas background. */
+  --z-celebration-back: -2;
+  --z-celebration-ambient: 10;
   --z-celebration-front: 20;
+  --z-controls: 30;
   --z-preview-bar: 40;
   --z-toast: 50;
   /* How strongly foreground pieces show (1 = full). */
@@ -45,9 +57,25 @@
 :root[data-celebration-surface='work'] {
   --fg-strength: 0.72;
 }
+/* Positioned (so it paints after the back layers in tree order) but with no
+   z-index, so it does NOT form a stacking context: anything that sets a
+   z-index inside it takes part in the page's root stacking context. That
+   is what lets the controls below sit above the snow and the flying
+   pieces, and lets the work panel (z-index -1) sit between the sky (-2)
+   and the content. Giving .app a z-index again would trap every control
+   under the decorations. */
 :root[data-celebration] .app {
   position: relative;
-  z-index: var(--z-app);
+}
+/* Essential controls above every decoration: navigation and action
+   buttons, tabs, switches, choices and form fields. The children's big
+   tiles (profile cards, chore cards) are content: snow and flying pieces
+   pass over them, and taps still reach them (decorations take none).
+   Zero specificity (:where), so a component that positions a control
+   itself (e.g. the hidden input of a switch) keeps its own position. */
+:where(:root[data-celebration] .app :is(button, input, select, textarea, [role='tab'], .switch, .choice, .check-row):not(.profile-card, .chore)) {
+  position: relative;
+  z-index: var(--z-controls);
 }
 :root[data-celebration] .screen {
   position: relative;
@@ -75,6 +103,15 @@
   height: 6rem;
   overflow: hidden;
   z-index: var(--z-celebration-back);
+}
+/* Falling snow, in front of the page content and behind the flying pieces
+   and controls. Fainter on work screens, like the foreground. */
+.celebration-ambient {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  z-index: var(--z-celebration-ambient);
+  opacity: var(--fg-strength);
 }
 /* In front of the app. Only the screen's own edges clip it (so nothing
    makes the page scroll); no app container clips or hides it. */
@@ -226,6 +263,8 @@
   display: block;
   border-radius: 50%;
   background: #fff;
+  /* A faint cool rim, so flakes show on white cards as well as on the sky. */
+  box-shadow: 0 0 0 1px rgb(112 132 172 / 0.45);
   opacity: 0.85;
 }
 .snowflake-sway {
@@ -806,7 +845,9 @@
 }
 
 /* Snow: three sheets of tiled flakes (far: small, slow; near: bigger,
-   faster). Each moves down by exactly one tile and repeats, so flakes fall
+   faster), in the ambient layer in front of the content. Each flake has a
+   faint cool rim baked into the tile, so it shows on white cards too.
+   Each sheet moves down by exactly one tile and repeats, so flakes fall
    continuously from top to bottom; each sheet also sways sideways. */
 .snow-sway {
   position: absolute;
@@ -836,12 +877,12 @@
   bottom: 0;
   opacity: 0.6;
   background-image:
-    radial-gradient(circle at 12% 18%, #fff 1.3px, transparent 2.2px),
-    radial-gradient(circle at 47% 62%, #fff 1.5px, transparent 2.4px),
-    radial-gradient(circle at 81% 33%, #fff 1.2px, transparent 2.1px),
-    radial-gradient(circle at 29% 88%, #fff 1.4px, transparent 2.3px),
-    radial-gradient(circle at 66% 9%, #fff 1.2px, transparent 2.1px),
-    radial-gradient(circle at 93% 79%, #fff 1.4px, transparent 2.3px);
+    radial-gradient(circle at 12% 18%, #fff 1.3px, rgb(112 132 172 / 0.55) 2.2px, transparent 2.9px),
+    radial-gradient(circle at 47% 62%, #fff 1.5px, rgb(112 132 172 / 0.55) 2.4px, transparent 3.1px),
+    radial-gradient(circle at 81% 33%, #fff 1.2px, rgb(112 132 172 / 0.55) 2.1px, transparent 2.8px),
+    radial-gradient(circle at 29% 88%, #fff 1.4px, rgb(112 132 172 / 0.55) 2.3px, transparent 3.0px),
+    radial-gradient(circle at 66% 9%, #fff 1.2px, rgb(112 132 172 / 0.55) 2.1px, transparent 2.8px),
+    radial-gradient(circle at 93% 79%, #fff 1.4px, rgb(112 132 172 / 0.55) 2.3px, transparent 3.0px);
   background-size: 230px 170px;
   animation-name: snow-far;
   animation-duration: 15s;
@@ -851,11 +892,11 @@
   bottom: 0;
   opacity: 0.8;
   background-image:
-    radial-gradient(circle at 18% 27%, #fff 2.3px, transparent 3.4px),
-    radial-gradient(circle at 58% 71%, #fff 2.6px, transparent 3.7px),
-    radial-gradient(circle at 84% 14%, #fff 2.2px, transparent 3.3px),
-    radial-gradient(circle at 36% 93%, #fff 2.4px, transparent 3.5px),
-    radial-gradient(circle at 73% 49%, #fff 2.1px, transparent 3.2px);
+    radial-gradient(circle at 18% 27%, #fff 2.3px, rgb(112 132 172 / 0.55) 3.4px, transparent 4.1px),
+    radial-gradient(circle at 58% 71%, #fff 2.6px, rgb(112 132 172 / 0.55) 3.7px, transparent 4.4px),
+    radial-gradient(circle at 84% 14%, #fff 2.2px, rgb(112 132 172 / 0.55) 3.3px, transparent 4.0px),
+    radial-gradient(circle at 36% 93%, #fff 2.4px, rgb(112 132 172 / 0.55) 3.5px, transparent 4.2px),
+    radial-gradient(circle at 73% 49%, #fff 2.1px, rgb(112 132 172 / 0.55) 3.2px, transparent 3.9px);
   background-size: 320px 250px;
   animation-name: snow-mid;
   animation-duration: 11s;
@@ -865,10 +906,10 @@
   bottom: 0;
   opacity: 0.95;
   background-image:
-    radial-gradient(circle at 23% 31%, #fff 3.4px, transparent 4.8px),
-    radial-gradient(circle at 71% 66%, #fff 3.8px, transparent 5.2px),
-    radial-gradient(circle at 52% 8%, #fff 3.2px, transparent 4.6px),
-    radial-gradient(circle at 9% 84%, #fff 3.6px, transparent 5px);
+    radial-gradient(circle at 23% 31%, #fff 3.4px, rgb(112 132 172 / 0.55) 4.8px, transparent 5.5px),
+    radial-gradient(circle at 71% 66%, #fff 3.8px, rgb(112 132 172 / 0.55) 5.2px, transparent 5.9px),
+    radial-gradient(circle at 52% 8%, #fff 3.2px, rgb(112 132 172 / 0.55) 4.6px, transparent 5.3px),
+    radial-gradient(circle at 9% 84%, #fff 3.6px, rgb(112 132 172 / 0.55) 5.0px, transparent 5.7px);
   background-size: 440px 360px;
   animation-name: snow-near;
   animation-duration: 8s;

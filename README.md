@@ -83,7 +83,7 @@ The app comes in two editions:
   - **New Year, Valentine’s Day, Easter, Halloween and Christmas** themes decorate **every screen**: sign-in and pairing, the home screen, the children’s charts and rewards, the parent area and the Family Calendar.
     - Each has an animated background and a top garland. The home screen adds a banner; Christmas and New Year show a countdown.
     - Halloween: bats with flapping wings on varied routes, flickering pumpkin light, cobwebs and spiders. Christmas: glowing fairy lights, falling snow, and now and then Santa’s sleigh and reindeer flying across.
-    - Things that fly or float across (bats, hearts and roses, fireworks and confetti, balloons, Santa) pass in front of the screens; they never take a tap, and dialogs, messages and the preview bar stay on top.
+    - Falling snow and the things that fly or float across (bats, hearts and roses, fireworks and confetti, balloons, Santa) pass in front of the screens' cards and panels; they never take a tap, and navigation and action buttons, form fields, dialogs, messages and the preview bar stay on top.
     - On dark skies, parent and calendar screens sit on a readable panel.
     - The sign-in screens learn today’s theme from a public endpoint that returns only the theme and its dates.
   - Each theme switches itself on for the **Monday–Sunday week of its holiday**. Easter Sunday is worked out for each year. Christmas runs from **1 November to 25 December**.

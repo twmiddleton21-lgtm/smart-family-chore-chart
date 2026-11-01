@@ -29,8 +29,10 @@ describe('planning a Santa fly-by', () => {
     expect(new Set(flights.map((f) => f.topVh)).size).toBeGreaterThan(20);
   });
 
-  it('waits minutes between fly-bys normally, and seconds for a parent’s preview', () => {
-    expect(flybyDelay('scheduled', true, () => 0)).toBe(45_000);
+  it('comes soon after the screen wakes, then minutes apart; seconds for a parent’s preview', () => {
+    // Soon enough to be seen by someone using the kiosk (it dims after 2 minutes).
+    expect(flybyDelay('scheduled', true, () => 0)).toBe(15_000);
+    expect(flybyDelay('scheduled', true, () => 0.9999)).toBeLessThanOrEqual(40_000);
     expect(flybyDelay('scheduled', false, () => 0)).toBe(4 * 60_000);
     expect(flybyDelay('scheduled', false, () => 0.9999)).toBeLessThanOrEqual(10 * 60_000);
     expect(flybyDelay('preview', true, () => 0.9999)).toBeLessThanOrEqual(3_500);
@@ -46,9 +48,9 @@ describe('the fly-by schedule', () => {
     vi.useRealTimers();
   });
 
-  function run(preview: boolean, hidden = () => false) {
+  function run(preview: boolean, hidden = () => false, idle = () => false) {
     const shown: (Flyby | null)[] = [];
-    const s = startFlybys({ preview, random: seq(3), hidden, show: (f) => shown.push(f) });
+    const s = startFlybys({ preview, random: seq(3), hidden, idle, show: (f) => shown.push(f) });
     const onScreen = () => shown.at(-1) ?? null;
     return { s, shown, onScreen };
   }
@@ -124,14 +126,56 @@ describe('the fly-by schedule', () => {
     expect(shown).toHaveLength(count);
   });
 
-  it('waits while the page is hidden', () => {
+  it('holds a fly-by while the page is hidden, with no timer running, and brings it soon after the page is shown', () => {
     let hidden = true;
-    const { s, shown } = run(true, () => hidden);
-    vi.advanceTimersByTime(10 * 60_000);
+    const { s, shown } = run(false, () => hidden);
+    vi.advanceTimersByTime(60 * 60_000);
     expect(shown).toEqual([]);
+    expect(vi.getTimerCount()).toBe(0); // nothing ticking in the background
     hidden = false;
-    vi.advanceTimersByTime(FLYBY_TIMING.preview.gap[1]);
+    s.wake();
+    vi.advanceTimersByTime(FLYBY_TIMING.scheduled.first[1]);
     expect(shown.filter(Boolean)).toHaveLength(1);
     s.stop();
+  });
+
+  it('never flies over a screen nobody has touched for a while (a dim kiosk): it waits for the next tap', () => {
+    let idle = false;
+    const { s, shown, onScreen } = run(false, () => false, () => idle);
+    vi.advanceTimersByTime(FLYBY_TIMING.scheduled.first[1]);
+    const first = onScreen()!;
+    expect(first).not.toBeNull(); // someone is using it: Santa comes
+    s.finish();
+    // The kiosk is left alone: the next fly-by falls due while it is dim, and is held.
+    idle = true;
+    vi.advanceTimersByTime(30 * 60_000);
+    expect(shown.filter(Boolean)).toHaveLength(1);
+    expect(vi.getTimerCount()).toBe(0);
+    // A child taps (the hook marks the activity, so the screen is no longer idle, and wakes the schedule).
+    idle = false;
+    s.wake();
+    s.wake(); // every tap calls it: safe to repeat, still one timer
+    expect(vi.getTimerCount()).toBe(1);
+    // A child taps: Santa comes within 15-40 s, not after another 4-10 minute gap.
+    vi.advanceTimersByTime(FLYBY_TIMING.scheduled.first[0] - 1000);
+    expect(onScreen()).toBeNull();
+    vi.advanceTimersByTime(FLYBY_TIMING.scheduled.first[1] - FLYBY_TIMING.scheduled.first[0] + 1000);
+    expect(onScreen()?.id).toBe(2);
+    s.stop();
+  });
+
+  it('wake does nothing while a fly-by is on screen or already planned (still one at a time)', () => {
+    const { s, shown, onScreen } = run(true);
+    s.wake();
+    s.wake();
+    expect(vi.getTimerCount()).toBe(1);
+    vi.advanceTimersByTime(FLYBY_TIMING.preview.first[1]);
+    expect(onScreen()).not.toBeNull();
+    s.wake();
+    expect(vi.getTimerCount()).toBe(1); // only the safety release for the one crossing
+    expect(shown.filter(Boolean)).toHaveLength(1);
+    s.stop();
+    s.wake();
+    expect(vi.getTimerCount()).toBe(0);
   });
 });
