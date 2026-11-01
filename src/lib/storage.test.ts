@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { defaultCelebrationSettings } from './celebrations';
 import { completeChore } from './chores';
 import { pointsBalance } from './points';
 import { redeemReward } from './rewards';
@@ -75,14 +76,14 @@ describe('malformed or incompatible data', () => {
 
     const { data, status } = loadData(storage, MONDAY);
     expect(status).toBe('loaded');
-    expect(data.version).toBe(3);
+    expect(data.version).toBe(4);
     expect(data.meals).toEqual([]);
     expect(data.foodOptions).toEqual({ mains: [], puddings: [] });
     expect(data.settings).toEqual({ familyName: 'Test Family', parentPin: '4321', mealReminderDismissedOn: null });
     expect(pointsBalance(data, 'a')).toBe(5);
     expect(storage.getItem(BACKUP_KEY)).toBeNull();
     // The upgraded data was saved back.
-    expect(JSON.parse(storage.getItem(STORAGE_KEY)!).version).toBe(3);
+    expect(JSON.parse(storage.getItem(STORAGE_KEY)!).version).toBe(4);
   });
 
   it('upgrades version 0.2.0 (v2) data: meals kept exactly, catalog built from their names', () => {
@@ -98,13 +99,13 @@ describe('malformed or incompatible data', () => {
 
     const { data, status } = loadData(storage, MONDAY);
     expect(status).toBe('loaded');
-    expect(data.version).toBe(3);
+    expect(data.version).toBe(4);
     expect(data.meals).toEqual(v2Meals);
     expect(data.foodOptions.mains.map((o) => o.name)).toEqual(['Fish fingers & chips', 'Roast chicken dinner']);
     expect(data.foodOptions.puddings.map((o) => o.name)).toEqual(['Apple crumble & custard', 'Jelly']);
     expect(data.children).toEqual(rest.children);
     expect(storage.getItem(BACKUP_KEY)).toBeNull();
-    expect(JSON.parse(storage.getItem(STORAGE_KEY)!).version).toBe(3);
+    expect(JSON.parse(storage.getItem(STORAGE_KEY)!).version).toBe(4);
 
     // Loading the upgraded data again changes nothing (stable, deterministic).
     const again = loadData(storage, MONDAY);
@@ -261,5 +262,62 @@ describe('pinRequired option (server documents)', () => {
   it('pinRequired: false ignores a PIN that is present', () => {
     const parsed = parseFamilyData(JSON.parse(JSON.stringify(makeFamily())), { pinRequired: false });
     expect(parsed?.data.settings.parentPin).toBe('');
+  });
+});
+
+describe('format v4: seasonal themes, birthdays and bonus awards', () => {
+  const award = { id: 'bonus_1', childId: 'a', kind: 'birthday', year: 2026, date: '2026-03-12', points: 50, note: 'Cinema trip', awardedAt: '2026-03-12T08:00:00.000Z' };
+
+  it('upgrades v3 data (v0.3.0–v0.6.0) with every record kept and the defaults added', () => {
+    const storage = new MemoryStorage();
+    const c = completeChore(makeFamily(), 'a-bed', MONDAY);
+    if (!c.ok) throw new Error(c.error);
+    const { celebrations: _c, birthdays: _b, bonusAwards: _a, ...rest } = c.data;
+    const v3 = { ...rest, version: 3 };
+    storage.setItem(STORAGE_KEY, JSON.stringify(v3));
+
+    const { data, status } = loadData(storage, MONDAY);
+    expect(status).toBe('loaded');
+    expect(data.version).toBe(4);
+    const { celebrations, birthdays, bonusAwards, version: _v, ...kept } = data;
+    const { version: _rv, ...restKept } = rest;
+    expect(kept).toEqual(restKept);
+    expect(celebrations).toEqual(defaultCelebrationSettings());
+    expect(birthdays).toEqual([]);
+    expect(bonusAwards).toEqual([]);
+    expect(JSON.parse(storage.getItem(STORAGE_KEY)!).version).toBe(4);
+  });
+
+  it('keeps valid birthdays and awards, counts awards in the balance', () => {
+    const data = {
+      ...makeFamily(),
+      birthdays: [{ childId: 'a', month: 3, day: 12, reward: { enabled: true, points: 50, gift: 'Cinema trip' } }],
+      bonusAwards: [award],
+    };
+    const parsed = parseFamilyData(JSON.parse(JSON.stringify(data)));
+    expect(parsed).toMatchObject({ repaired: false, migrated: false });
+    expect(parsed!.data.birthdays).toEqual(data.birthdays);
+    expect(pointsBalance(parsed!.data, 'a')).toBe(50);
+  });
+
+  it('drops a second award for the same child and year, and birthdays of unknown children', () => {
+    const data = {
+      ...makeFamily(),
+      birthdays: [
+        { childId: 'a', month: 3, day: 12, reward: { enabled: true, points: 50, gift: '' } },
+        { childId: 'a', month: 4, day: 1, reward: { enabled: true, points: 50, gift: '' } },
+        { childId: 'gone', month: 5, day: 1, reward: { enabled: true, points: 50, gift: '' } },
+      ],
+      bonusAwards: [award, { ...award, id: 'bonus_2' }],
+    };
+    const parsed = parseFamilyData(JSON.parse(JSON.stringify(data)));
+    expect(parsed!.repaired).toBe(true);
+    expect(parsed!.data.bonusAwards.map((a) => a.id)).toEqual(['bonus_1']);
+    expect(parsed!.data.birthdays.map((b) => [b.childId, b.month])).toEqual([['a', 3]]);
+  });
+
+  it('treats v4 data without the new collections as unreadable', () => {
+    const { bonusAwards: _a, ...broken } = makeFamily();
+    expect(parseFamilyData(broken)).toBeNull();
   });
 });

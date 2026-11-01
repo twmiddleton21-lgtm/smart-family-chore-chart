@@ -3,7 +3,8 @@ import { DATA_VERSION } from '../../src/types';
 import type { SqlDatabase } from '../db/database';
 import { todayInZone } from '../time';
 import { executeCommand, type Command, type CommandError } from './commands';
-import { changedRecords, emptyFamily, isEmptyHousehold, parseStoredDocument, recordSnapshots, validateDocument, type FamilyDocument } from './document';
+import { parseFamilyData } from '../../src/lib/storage';
+import { changedRecords, CorruptStateError, emptyFamily, fromLib, isEmptyHousehold, parseStoredDocument, recordSnapshots, validateDocument, type FamilyDocument } from './document';
 
 // The authoritative family state for this installation, stored as one
 // versioned document in SQLite. Every change runs inside a single write
@@ -72,6 +73,49 @@ export class FamilyStore {
         this.now().toISOString(),
       );
       return { created: true };
+    });
+  }
+
+  /** Format version of the stored family document, or null before the household exists. */
+  storedFormat(): number | null {
+    const row = this.db.get<{ format: number }>('SELECT format FROM family_state WHERE id = 1');
+    return row ? Number(row.format) : null;
+  }
+
+  /**
+   * Upgrade a family document saved by an older release (format 3, up to
+   * 0.6.0) to the current format, all or nothing, as a new state version.
+   * Every existing record is kept exactly; the upgrade only adds the new
+   * collections with their defaults. Refuses (CorruptStateError, nothing
+   * written) if the stored data has anything the validator would drop.
+   * Returns null when there is nothing to upgrade. The caller takes a
+   * backup first (server/open.ts).
+   */
+  upgradeFormat(): { from: number; to: number } | null {
+    return this.db.transaction(() => {
+      const row = this.db.get<{ version: number; format: number; data: string }>('SELECT version, format, data FROM family_state WHERE id = 1');
+      if (!row || Number(row.format) >= DATA_VERSION) return null;
+      let value: unknown;
+      try {
+        value = JSON.parse(row.data);
+      } catch {
+        throw new CorruptStateError('Stored family data is not valid JSON.');
+      }
+      const parsed = parseFamilyData(value, { pinRequired: false });
+      if (!parsed || parsed.repaired) throw new CorruptStateError('Stored family data contains invalid records; refusing to upgrade it.');
+      const next = validateDocument(JSON.parse(JSON.stringify(fromLib(parsed.data))), true);
+      const nextVersion = Number(row.version) + 1;
+      const at = this.now().toISOString();
+      this.db.run(
+        'UPDATE family_state SET version = ?, format = ?, data = ?, updated_at = ? WHERE id = 1 AND version = ?',
+        nextVersion,
+        DATA_VERSION,
+        JSON.stringify(next),
+        at,
+        row.version,
+      );
+      this.db.run('INSERT INTO command_log (state_version, type, actor, applied_at) VALUES (?, ?, ?, ?)', nextVersion, `upgradeFormat:v${row.format}-to-v${DATA_VERSION}`, 'system', at);
+      return { from: Number(row.format), to: DATA_VERSION };
     });
   }
 

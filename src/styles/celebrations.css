@@ -1,0 +1,1784 @@
+/* ============================================================
+   Seasonal themes and birthdays (src/components/celebrations).
+
+   One decoration layer for the WHOLE app (state/celebrationHost.tsx),
+   mounted once at the root. The theme is published on <html>:
+     data-celebration          the theme (or "birthday"); absent = none
+     data-celebration-tone     dark | light (night skies need light text)
+     data-celebration-surface  child | work (work = parent area, calendar)
+   so every screen, sign-in included, is themed without doing anything.
+
+   Stacking order, back to front (the --z-* scale below; nothing else in
+   the app sets a z-index outside its own component):
+     --z-celebration-back   .celebration-backdrop (sky, snow, ghosts, eggs,
+                            ground) and .celebration-frame (garland, corners)
+     --z-app                .app: every screen and its content
+     --z-celebration-front  .celebration-foreground: what flies or floats
+                            across (bats, hearts and roses, fireworks,
+                            confetti, balloons, Santa), in front of panels
+     --z-preview-bar        the preview bar (placed at the end of <body>)
+     --z-toast              messages (components.css)
+     top layer              every dialog (native <dialog>.showModal(): PIN
+                            entry, parent sign-in, confirmations), which the
+                            browser always draws above all of the above
+   No decoration takes a tap, swipe or scroll (pointer-events: none). The
+   foreground fades out while someone types in a field on the page, and is
+   a little fainter on work screens (parent area, calendar).
+
+   Performance (Raspberry Pi 5): only transform and opacity are animated,
+   with fixed keyframes (no CSS variables inside them), so animations run
+   on the GPU. Snow is three tiled sheets, not hundreds of elements.
+   Animations pause after 10 minutes without input (.celebration-paused)
+   and are switched off for prefers-reduced-motion, where every piece rests
+   at its base position as a still picture.
+   ============================================================ */
+
+:root {
+  --z-celebration-back: 0;
+  --z-app: 1;
+  --z-celebration-front: 20;
+  --z-preview-bar: 40;
+  --z-toast: 50;
+  /* How strongly foreground pieces show (1 = full). */
+  --fg-strength: 1;
+}
+:root[data-celebration-surface='work'] {
+  --fg-strength: 0.72;
+}
+:root[data-celebration] .app {
+  position: relative;
+  z-index: var(--z-app);
+}
+:root[data-celebration] .screen {
+  position: relative;
+}
+/* A free band at the top of every screen for the garland and corner pieces. */
+:root[data-celebration] .screen {
+  padding-top: calc(var(--gutter) + 2.5rem);
+}
+
+.celebration-layers,
+.celebration-layers * {
+  pointer-events: none;
+}
+.celebration-backdrop {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  z-index: var(--z-celebration-back);
+}
+.celebration-frame {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 6rem;
+  overflow: hidden;
+  z-index: var(--z-celebration-back);
+}
+/* In front of the app. Only the screen's own edges clip it (so nothing
+   makes the page scroll); no app container clips or hides it. */
+.celebration-foreground {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  z-index: var(--z-celebration-front);
+  transition: opacity 0.35s ease;
+}
+/* Someone is typing in a field on the page (setup, pairing, a form in the
+   parent area): the flying pieces step aside until they're done. */
+:root:has(.app :is(input:not([type='checkbox'], [type='radio'], [type='range']), textarea, select):focus) .celebration-foreground {
+  opacity: 0;
+}
+.deco-field {
+  position: absolute;
+  inset: 0;
+}
+.art {
+  display: block;
+  overflow: visible;
+}
+.celebration-layers .art,
+.season-banner .art,
+.birthday-banner .art {
+  transform-box: fill-box;
+}
+
+/* ---------- Skies ---------- */
+
+.backdrop-halloween {
+  background:
+    radial-gradient(ellipse 70% 45% at 85% 0%, #4b2a7a 0%, transparent 70%),
+    radial-gradient(ellipse 90% 30% at 50% 100%, rgb(255 120 30 / 0.35) 0%, transparent 70%),
+    linear-gradient(180deg, #120a24 0%, #22103d 45%, #34153f 78%, #4a1e18 100%);
+}
+.backdrop-christmas {
+  background:
+    radial-gradient(ellipse 80% 40% at 50% -5%, #3d63a0 0%, transparent 70%),
+    linear-gradient(180deg, #0b1b35 0%, #142d52 55%, #213f6c 100%);
+}
+.backdrop-newYear {
+  background:
+    radial-gradient(ellipse 70% 40% at 30% 0%, #2f347a 0%, transparent 70%),
+    radial-gradient(ellipse 60% 35% at 85% 20%, #3a2466 0%, transparent 70%),
+    linear-gradient(180deg, #070a22 0%, #11163f 60%, #1f1a4c 100%);
+}
+.backdrop-easter {
+  background:
+    radial-gradient(circle at 12% 18%, #fff4b8 0, transparent 22%),
+    linear-gradient(180deg, #e3f4ff 0%, #f6efff 50%, #eefbe5 100%);
+}
+.backdrop-valentines {
+  background:
+    radial-gradient(circle at 15% 20%, #ffd1df 0, transparent 35%),
+    radial-gradient(circle at 85% 70%, #ffc2d4 0, transparent 35%),
+    linear-gradient(180deg, #fff3f7 0%, #ffe3ed 60%, #ffd3e2 100%);
+}
+.backdrop-birthday {
+  background:
+    radial-gradient(circle at 10% 15%, #ffe8a3 0, transparent 25%),
+    radial-gradient(circle at 90% 30%, #d9ccff 0, transparent 25%),
+    linear-gradient(180deg, #fff8e8 0%, #fff0f7 60%, #eef8ff 100%);
+}
+
+/* Children's screens on a night sky: text that sits straight on the sky
+   (not on a card) turns light. */
+:root[data-celebration-tone='dark'][data-celebration-surface='child'] .brand,
+:root[data-celebration-tone='dark'][data-celebration-surface='child'] .section-heading,
+:root[data-celebration-tone='dark'][data-celebration-surface='child'] .section-heading .screen-title,
+:root[data-celebration-tone='dark'][data-celebration-surface='child'] .family-progress,
+:root[data-celebration-tone='dark'][data-celebration-surface='child'] .dashboard-footer {
+  color: #fdf7ff;
+  text-shadow: 0 1px 3px rgb(0 0 0 / 0.6);
+}
+:root[data-celebration-tone='dark'] .button-ghost {
+  background: rgb(255 255 255 / 0.92);
+}
+
+/* Parent area and calendar on a night sky: the screen's content sits on a
+   readable panel tinted for the season, below the garland band; the sky,
+   garland, corners and the screen edges stay themed. Existing layouts are
+   unchanged (the panel is a ::before behind the content). */
+:root[data-celebration-tone='dark'][data-celebration-surface='work'] .screen::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: 2.6rem max(0px, calc(var(--gutter) * 0.35)) 0.6rem;
+  border-radius: var(--radius-lg);
+  background: var(--work-panel, rgb(255 250 244 / 0.94));
+  box-shadow: 0 0 0 3px var(--work-panel-edge, rgb(255 255 255 / 0.25)), 0 1.5rem 3rem rgb(0 0 0 / 0.35);
+}
+:root[data-celebration='halloween'] {
+  --work-panel: rgb(255 246 234 / 0.85);
+  --work-panel-edge: rgb(255 138 31 / 0.55);
+}
+:root[data-celebration='christmas'] {
+  --work-panel: rgb(246 250 255 / 0.86);
+  --work-panel-edge: rgb(255 209 102 / 0.6);
+}
+:root[data-celebration='newYear'] {
+  --work-panel: rgb(251 249 255 / 0.86);
+  --work-panel-edge: rgb(232 198 106 / 0.6);
+}
+
+/* ---------- Drifting pieces ----------
+   No CSS variables inside keyframes: those can't run on the GPU and would
+   restyle the page every frame. A falling piece sits at the bottom of an
+   invisible full-height column placed just above the screen; moving the
+   column by a percentage of its own height carries the piece from the top
+   of the screen to the bottom. Rising pieces do the reverse. */
+
+.fall-column,
+.rise-column {
+  position: absolute;
+  height: 100vh;
+  display: flex;
+  justify-content: center;
+}
+.fall-column {
+  top: -100vh;
+  align-items: flex-end;
+  animation: fall linear infinite;
+}
+.rise-column {
+  top: 0;
+  align-items: flex-start;
+  animation: rise linear infinite;
+}
+@keyframes fall {
+  from {
+    transform: translate3d(0, -6%, 0);
+  }
+  to {
+    transform: translate3d(0, 106%, 0);
+  }
+}
+@keyframes rise {
+  from {
+    transform: translate3d(0, 106%, 0);
+  }
+  to {
+    transform: translate3d(0, -22%, 0);
+  }
+}
+
+.snowflake {
+  display: block;
+  border-radius: 50%;
+  background: #fff;
+  opacity: 0.85;
+}
+.snowflake-sway {
+  animation: drift-x ease-in-out infinite alternate;
+}
+@keyframes drift-x {
+  from {
+    transform: translate3d(-0.9rem, 0, 0);
+  }
+  to {
+    transform: translate3d(0.9rem, 0, 0);
+  }
+}
+
+.confetti {
+  display: block;
+  width: 0.55rem;
+  height: 0.9rem;
+  border-radius: 2px;
+  opacity: calc(0.9 * var(--fg-strength));
+  animation: tumble linear infinite;
+}
+@keyframes tumble {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.floater {
+  position: absolute;
+}
+.floater .art,
+.floater-sway .art {
+  width: 100%;
+  height: auto;
+}
+.floater-sway {
+  display: block;
+  opacity: 0.9;
+}
+.celebration-foreground .floater-sway {
+  opacity: calc(0.9 * var(--fg-strength));
+}
+.floater-sway {
+  animation: sway-soft 4s ease-in-out infinite alternate;
+}
+.balloon-rise {
+  width: 2.8rem !important;
+}
+.rose-rise {
+  width: 2rem !important;
+}
+@keyframes sway-soft {
+  from {
+    transform: translate3d(-0.75rem, 0, 0) rotate(-8deg);
+  }
+  to {
+    transform: translate3d(0.75rem, 0, 0) rotate(8deg);
+  }
+}
+.egg-float {
+  animation: egg-bob ease-in-out infinite;
+}
+@keyframes egg-bob {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-8deg);
+  }
+  50% {
+    transform: translateY(-1.25rem) rotate(8deg);
+  }
+}
+.sparkle-twinkle {
+  width: 1.4rem !important;
+  animation: twinkle-scale ease-in-out infinite;
+}
+@keyframes twinkle-scale {
+  0%,
+  100% {
+    transform: scale(0.35);
+    opacity: 0.25;
+  }
+  50% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* ---------- Halloween ---------- */
+
+.deco-moon {
+  position: absolute;
+  top: 0.4rem;
+  right: 22vw;
+  width: clamp(2.5rem, 5vmin, 4rem);
+  filter: drop-shadow(0 0 1.5rem rgb(255 244 201 / 0.55));
+}
+/* Bats (foreground). Each bat is drawn in parts: two wings and a body.
+     .bat-flight  a full-width strip; moving it by a % of its own width
+                  carries the bat across the screen (its route, x)
+     .bat-lift    the rise and fall on the way (y), same timing as the route
+     .bat         this bat's size and depth (far bats fainter)
+     .bat-bob     the body lifting a little with each downstroke
+     .bat-wing    each wing turning at the shoulder and foreshortening:
+                  a quick downstroke and a slower recovery.
+   Routes rest off screen for part of their cycle, so bats come and go.
+   Rest positions off screen allow for the widest bat (under 8rem). */
+.bat-flight {
+  position: absolute;
+  left: 0;
+  width: 100vw;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+.bat-lift {
+  display: block;
+  width: max-content;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+.bat {
+  display: block;
+  opacity: calc(var(--bat-alpha, 1) * var(--fg-strength));
+}
+.bat-near { --bat-alpha: 1; }
+.bat-mid { --bat-alpha: 0.88; }
+.bat-far { --bat-alpha: 0.7; }
+.bat-bob {
+  position: relative;
+  display: block;
+  aspect-ratio: 100 / 46;
+  animation: bat-bob ease-in-out infinite;
+}
+.bat-wing {
+  position: absolute;
+  top: 6%;
+  width: 47%;
+  height: auto;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+.bat-wing-left {
+  left: 0;
+  transform-origin: 96% 26%;
+  transform: rotate(10deg) scaleY(0.8);
+  animation-name: wing-left;
+}
+.bat-wing-right {
+  right: 0;
+  transform-origin: 4% 26%;
+  transform: rotate(-10deg) scaleY(0.8);
+  animation-name: wing-right;
+}
+.bat-torso {
+  position: absolute;
+  top: 0;
+  left: 43%;
+  width: 14%;
+  height: auto;
+}
+/* Wings: up (raised, spread), a quick downstroke (lowered, foreshortened),
+   then a slower recovery back up. */
+@keyframes wing-left {
+  0%, 100% { transform: rotate(34deg) scaleY(0.92); }
+  38% { transform: rotate(-26deg) scaleY(0.55); }
+  60% { transform: rotate(-6deg) scaleY(0.75); }
+}
+@keyframes wing-right {
+  0%, 100% { transform: rotate(-34deg) scaleY(0.92); }
+  38% { transform: rotate(26deg) scaleY(0.55); }
+  60% { transform: rotate(6deg) scaleY(0.75); }
+}
+@keyframes bat-bob {
+  0%, 100% { transform: translate3d(0, 6%, 0); }
+  38% { transform: translate3d(0, -10%, 0); }
+}
+
+.bat-x-cross-ltr { animation-name: bat-x-cross-ltr; }
+.bat-x-cross-rtl { animation-name: bat-x-cross-rtl; }
+.bat-x-turn-back { animation-name: bat-x-turn-back; }
+.bat-x-loop-up { animation-name: bat-x-loop-up; }
+.bat-x-drift-rtl { animation-name: bat-x-drift-rtl; }
+.bat-x-diagonal { animation-name: bat-x-diagonal; }
+.bat-x-dart-ltr { animation-name: bat-x-dart-ltr; }
+.bat-y-wave { animation-name: bat-y-wave; }
+.bat-y-swoop { animation-name: bat-y-swoop; }
+.bat-y-flutter { animation-name: bat-y-flutter; }
+.bat-y-escape { animation-name: bat-y-escape; }
+.bat-y-climb { animation-name: bat-y-climb; }
+.bat-y-dip { animation-name: bat-y-dip; }
+
+/* Routes across (x). */
+@keyframes bat-x-cross-ltr {
+  0% { transform: translate3d(calc(-1% - 8rem), 0, 0); }
+  72%, 100% { transform: translate3d(103%, 0, 0); }
+}
+@keyframes bat-x-cross-rtl {
+  0% { transform: translate3d(103%, 0, 0); }
+  64%, 100% { transform: translate3d(calc(-1% - 8rem), 0, 0); }
+}
+/* In from the left, slows, hesitates, turns and flies back out. */
+@keyframes bat-x-turn-back {
+  0% { transform: translate3d(calc(-1% - 8rem), 0, 0); animation-timing-function: ease-out; }
+  30% { transform: translate3d(38%, 0, 0); animation-timing-function: ease-in-out; }
+  40% { transform: translate3d(33%, 0, 0); animation-timing-function: ease-in; }
+  66%, 100% { transform: translate3d(calc(-1% - 8rem), 0, 0); }
+}
+/* In from the right, a loop in mid-air, then away over the top (see bat-y-escape). */
+@keyframes bat-x-loop-up {
+  0% { transform: translate3d(103%, 0, 0); animation-timing-function: ease-out; }
+  30% { transform: translate3d(60%, 0, 0); animation-timing-function: ease-in-out; }
+  42% { transform: translate3d(70%, 0, 0); animation-timing-function: ease-in-out; }
+  58% { transform: translate3d(52%, 0, 0); animation-timing-function: ease-in-out; }
+  80%, 100% { transform: translate3d(46%, 0, 0); }
+}
+/* Far and slow, right to left. */
+@keyframes bat-x-drift-rtl {
+  0% { transform: translate3d(103%, 0, 0); }
+  88%, 100% { transform: translate3d(calc(-1% - 8rem), 0, 0); }
+}
+/* Up from the lower left and away past the upper right (see bat-y-climb). */
+@keyframes bat-x-diagonal {
+  0% { transform: translate3d(calc(-1% - 8rem), 0, 0); }
+  70%, 100% { transform: translate3d(103%, 0, 0); }
+}
+/* A quick dart across, then a long rest out of sight. */
+@keyframes bat-x-dart-ltr {
+  0% { transform: translate3d(calc(-1% - 8rem), 0, 0); }
+  42%, 100% { transform: translate3d(103%, 0, 0); }
+}
+
+/* Rises and falls on the way (y): eased between points, so curves are smooth. */
+@keyframes bat-y-wave {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  22% { transform: translate3d(0, -5vh, 0); }
+  46% { transform: translate3d(0, 2vh, 0); }
+  70% { transform: translate3d(0, -3vh, 0); }
+}
+@keyframes bat-y-swoop {
+  0% { transform: translate3d(0, 0, 0); }
+  28% { transform: translate3d(0, 11vh, 0); }
+  50% { transform: translate3d(0, -2vh, 0); }
+  64%, 100% { transform: translate3d(0, -7vh, 0); }
+}
+@keyframes bat-y-flutter {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  12% { transform: translate3d(0, -3vh, 0); }
+  24% { transform: translate3d(0, 1.5vh, 0); }
+  36% { transform: translate3d(0, -4vh, 0); }
+  50% { transform: translate3d(0, 2vh, 0); }
+  66% { transform: translate3d(0, -1vh, 0); }
+}
+@keyframes bat-y-escape {
+  0% { transform: translate3d(0, 0, 0); }
+  30% { transform: translate3d(0, 5vh, 0); }
+  44% { transform: translate3d(0, -3vh, 0); }
+  58% { transform: translate3d(0, 3vh, 0); animation-timing-function: ease-in; }
+  80%, 100% { transform: translate3d(0, -85vh, 0); }
+}
+@keyframes bat-y-climb {
+  0% { transform: translate3d(0, 22vh, 0); }
+  35% { transform: translate3d(0, 2vh, 0); }
+  70%, 100% { transform: translate3d(0, -52vh, 0); }
+}
+@keyframes bat-y-dip {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  20% { transform: translate3d(0, 9vh, 0); }
+  42% { transform: translate3d(0, -1vh, 0); }
+}
+.ghost-drift {
+  position: absolute;
+  width: clamp(2.5rem, 5vmin, 4rem);
+  opacity: 0.45;
+  animation: ghost-appear 19s ease-in-out infinite;
+}
+.ghost-drift-0 { left: 6vw; top: 44vh; }
+.ghost-drift-1 { right: 8vw; top: 64vh; animation-delay: -9s; animation-duration: 23s; }
+@keyframes ghost-appear {
+  0%,
+  58%,
+  100% {
+    opacity: 0;
+    transform: translateY(1.5rem) scale(0.9);
+  }
+  68%,
+  88% {
+    opacity: 0.6;
+    transform: translateY(-1.5rem) scale(1);
+  }
+}
+
+.deco-web {
+  position: absolute;
+  top: 0;
+  width: 4.25rem;
+  height: 4.25rem;
+  color: rgb(235 228 255 / 0.6);
+}
+.deco-web-left {
+  left: 0;
+}
+.deco-web-right {
+  right: 0;
+  transform: scaleX(-1);
+}
+.spider-drop {
+  position: absolute;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 1.6rem;
+  animation: spider-bob 7s ease-in-out infinite;
+}
+.spider-drop-left {
+  left: 2.4rem;
+}
+.spider-drop-right {
+  right: 3.2rem;
+  animation-delay: -3.5s;
+}
+.spider-thread {
+  width: 1px;
+  height: 1.3rem;
+  background: rgb(235 228 255 / 0.7);
+}
+.deco-spider {
+  width: 100%;
+  height: auto;
+}
+@keyframes spider-bob {
+  0%,
+  100% {
+    transform: translateY(-0.4rem);
+  }
+  50% {
+    transform: translateY(0.6rem);
+  }
+}
+.spider-crawl {
+  position: absolute;
+  top: 0.35rem;
+  left: 38vw;
+  width: 1.3rem;
+  animation: spider-crawl 46s linear infinite;
+}
+.spider-crawl .spider-legs {
+  transform-origin: 50% 50%;
+  animation: legs 0.25s steps(2) infinite;
+}
+@keyframes legs {
+  to {
+    transform: scaleX(0.85);
+  }
+}
+@keyframes spider-crawl {
+  0% {
+    transform: translateX(-40vw) rotate(90deg);
+  }
+  45% {
+    transform: translateX(10vw) rotate(90deg);
+  }
+  55% {
+    transform: translateX(10vw) rotate(90deg);
+  }
+  100% {
+    transform: translateX(64vw) rotate(90deg);
+  }
+}
+
+.deco-ground {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: clamp(5rem, 11vmin, 9rem);
+}
+/* Jack-o'-lanterns with candle light: a wide soft glow that breathes and a
+   warm core that flickers on a different, uneven rhythm, plus the carved
+   face itself. Slow, gentle changes; never a flash. */
+.ground-pumpkin {
+  position: absolute;
+  bottom: 0.4rem;
+  width: clamp(4.5rem, 9vmin, 8rem);
+}
+.ground-pumpkin-0 { left: max(0.3rem, 1vw); }
+.ground-pumpkin-1 { left: calc(max(0.3rem, 1vw) + clamp(4rem, 8vmin, 7rem)); width: clamp(3.2rem, 6vmin, 5.5rem); }
+.ground-pumpkin-2 { right: calc(max(0.3rem, 1vw) + clamp(4rem, 8vmin, 7rem)); width: clamp(3rem, 5.5vmin, 5rem); }
+.ground-pumpkin-3 { right: max(0.3rem, 1vw); }
+.ground-pumpkin .art {
+  position: relative;
+  width: 100%;
+  height: auto;
+}
+.pumpkin-glow,
+.pumpkin-core {
+  position: absolute;
+  border-radius: 50%;
+}
+.pumpkin-glow {
+  inset: -70% -60% -25%;
+  background: radial-gradient(closest-side, rgb(255 168 52 / 0.62) 0%, rgb(255 120 20 / 0.28) 45%, transparent 100%);
+  animation: glow-breathe 4.3s ease-in-out infinite;
+}
+.pumpkin-core {
+  inset: 5% 8% 0;
+  background: radial-gradient(closest-side, rgb(255 226 140 / 0.95) 0%, rgb(255 160 40 / 0.55) 55%, transparent 100%);
+  animation: candle 2.7s ease-in-out infinite;
+}
+.pumpkin-face {
+  fill: #ffd75e;
+  animation: candle-face 2.3s ease-in-out infinite;
+}
+.ground-pumpkin-1 .pumpkin-glow { animation-delay: -1.6s; animation-duration: 5.1s; }
+.ground-pumpkin-1 .pumpkin-core,
+.ground-pumpkin-1 .pumpkin-face { animation-delay: -1.1s; }
+.ground-pumpkin-2 .pumpkin-glow { animation-delay: -2.7s; animation-duration: 4.7s; }
+.ground-pumpkin-2 .pumpkin-core,
+.ground-pumpkin-2 .pumpkin-face { animation-delay: -0.6s; }
+.ground-pumpkin-3 .pumpkin-glow { animation-delay: -0.9s; }
+.ground-pumpkin-3 .pumpkin-core,
+.ground-pumpkin-3 .pumpkin-face { animation-delay: -1.8s; }
+@keyframes glow-breathe {
+  0%,
+  100% {
+    transform: scale(0.94);
+    opacity: 0.8;
+  }
+  35% {
+    transform: scale(1.06);
+    opacity: 1;
+  }
+  60% {
+    transform: scale(0.99);
+    opacity: 0.86;
+  }
+  80% {
+    transform: scale(1.03);
+    opacity: 0.95;
+  }
+}
+@keyframes candle {
+  0%,
+  100% {
+    opacity: 0.85;
+  }
+  12% {
+    opacity: 0.62;
+  }
+  24% {
+    opacity: 0.93;
+  }
+  38% {
+    opacity: 0.7;
+  }
+  52% {
+    opacity: 1;
+  }
+  68% {
+    opacity: 0.76;
+  }
+  84% {
+    opacity: 0.95;
+  }
+}
+@keyframes candle-face {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  30% {
+    opacity: 0.72;
+  }
+  45% {
+    opacity: 0.95;
+  }
+  65% {
+    opacity: 0.8;
+  }
+}
+
+/* ---------- Christmas ---------- */
+
+.deco-garland {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: auto;
+  height: 2.4rem;
+}
+
+/* Fairy lights: a drooping wire with bulbs hanging at each dip. A bulb's
+   coloured body is always there; its light (a bright core and soft halo)
+   glows up and dims in turn along the string. */
+.fairy-lights {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2.6rem;
+}
+.fairy-wire {
+  position: absolute;
+  inset: 0 0 auto;
+  width: 100%;
+  height: 1.6rem;
+}
+.fairy-bulb {
+  position: absolute;
+  top: 0.62rem;
+  width: 0.72rem;
+  height: 1.05rem;
+  margin-left: -0.36rem;
+}
+.bulb-cap {
+  position: absolute;
+  top: 0;
+  left: 0.16rem;
+  width: 0.4rem;
+  height: 0.32rem;
+  border-radius: 0.1rem;
+  background: #3d5a36;
+}
+.bulb-body {
+  position: absolute;
+  top: 0.26rem;
+  left: 0;
+  width: 0.72rem;
+  height: 0.8rem;
+  border-radius: 50% 50% 48% 48% / 40% 40% 60% 60%;
+  background: var(--bulb);
+  opacity: 0.55;
+}
+.bulb-light {
+  position: absolute;
+  top: -0.45rem;
+  left: -0.8rem;
+  width: 2.32rem;
+  height: 2.32rem;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, #fff 0%, var(--bulb) 26%, color-mix(in srgb, var(--bulb) 45%, transparent) 46%, transparent 100%);
+  opacity: 0.2;
+  animation: bulb-glow 3.85s ease-in-out infinite;
+  will-change: opacity;
+}
+@keyframes bulb-glow {
+  0%,
+  100% {
+    opacity: 0.18;
+  }
+  30% {
+    opacity: 1;
+  }
+  55% {
+    opacity: 0.9;
+  }
+  80% {
+    opacity: 0.3;
+  }
+}
+/* Tree baubles twinkle in two groups. */
+.twinkle {
+  animation: twinkle-fade 1.4s ease-in-out infinite alternate;
+}
+.twinkle-1 {
+  animation-delay: -0.7s;
+}
+@keyframes twinkle-fade {
+  from {
+    opacity: 0.45;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Snow: three sheets of tiled flakes (far: small, slow; near: bigger,
+   faster). Each moves down by exactly one tile and repeats, so flakes fall
+   continuously from top to bottom; each sheet also sways sideways. */
+.snow-sway {
+  position: absolute;
+  inset: 0;
+  animation: snow-sway ease-in-out infinite alternate;
+}
+.snow-sway-far { animation-duration: 9s; }
+.snow-sway-mid { animation-duration: 7s; animation-delay: -3s; }
+.snow-sway-near { animation-duration: 5.5s; animation-delay: -1s; }
+@keyframes snow-sway {
+  from {
+    transform: translate3d(-14px, 0, 0);
+  }
+  to {
+    transform: translate3d(14px, 0, 0);
+  }
+}
+.snow-sheet {
+  position: absolute;
+  left: -30px;
+  right: -30px;
+  animation: linear infinite;
+  will-change: transform;
+}
+.snow-far {
+  top: -170px;
+  bottom: 0;
+  opacity: 0.6;
+  background-image:
+    radial-gradient(circle at 12% 18%, #fff 1.3px, transparent 2.2px),
+    radial-gradient(circle at 47% 62%, #fff 1.5px, transparent 2.4px),
+    radial-gradient(circle at 81% 33%, #fff 1.2px, transparent 2.1px),
+    radial-gradient(circle at 29% 88%, #fff 1.4px, transparent 2.3px),
+    radial-gradient(circle at 66% 9%, #fff 1.2px, transparent 2.1px),
+    radial-gradient(circle at 93% 79%, #fff 1.4px, transparent 2.3px);
+  background-size: 230px 170px;
+  animation-name: snow-far;
+  animation-duration: 15s;
+}
+.snow-mid {
+  top: -250px;
+  bottom: 0;
+  opacity: 0.8;
+  background-image:
+    radial-gradient(circle at 18% 27%, #fff 2.3px, transparent 3.4px),
+    radial-gradient(circle at 58% 71%, #fff 2.6px, transparent 3.7px),
+    radial-gradient(circle at 84% 14%, #fff 2.2px, transparent 3.3px),
+    radial-gradient(circle at 36% 93%, #fff 2.4px, transparent 3.5px),
+    radial-gradient(circle at 73% 49%, #fff 2.1px, transparent 3.2px);
+  background-size: 320px 250px;
+  animation-name: snow-mid;
+  animation-duration: 11s;
+}
+.snow-near {
+  top: -360px;
+  bottom: 0;
+  opacity: 0.95;
+  background-image:
+    radial-gradient(circle at 23% 31%, #fff 3.4px, transparent 4.8px),
+    radial-gradient(circle at 71% 66%, #fff 3.8px, transparent 5.2px),
+    radial-gradient(circle at 52% 8%, #fff 3.2px, transparent 4.6px),
+    radial-gradient(circle at 9% 84%, #fff 3.6px, transparent 5px);
+  background-size: 440px 360px;
+  animation-name: snow-near;
+  animation-duration: 8s;
+}
+@keyframes snow-far {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(0, 170px, 0); }
+}
+@keyframes snow-mid {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(0, 250px, 0); }
+}
+@keyframes snow-near {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(0, 360px, 0); }
+}
+/* Santa's sleigh and reindeer (foreground; components/celebrations/SantaFlyby.tsx).
+   Present only while crossing. The team is drawn facing right; the whole
+   flight line is mirrored for right-to-left. */
+.santa-flyby {
+  position: absolute;
+  left: 0;
+  width: 100vw;
+  height: 0;
+}
+.santa-rtl {
+  transform: scaleX(-1);
+}
+.santa-cross {
+  width: max-content;
+  animation-timing-function: linear;
+  animation-fill-mode: both;
+}
+.santa-cross-up { animation-name: santa-cross-up; }
+.santa-cross-down { animation-name: santa-cross-down; }
+.santa-cross-level { animation-name: santa-cross-level; }
+/* From fully off one side (sparkle trail included) to fully off the other. */
+@keyframes santa-cross-up {
+  from { transform: translate3d(-140%, 6vh, 0); }
+  to { transform: translate3d(calc(100vw + 45%), -6vh, 0); }
+}
+@keyframes santa-cross-down {
+  from { transform: translate3d(-140%, -4vh, 0); }
+  to { transform: translate3d(calc(100vw + 45%), 7vh, 0); }
+}
+@keyframes santa-cross-level {
+  from { transform: translate3d(-140%, 0, 0); }
+  to { transform: translate3d(calc(100vw + 45%), 0, 0); }
+}
+.santa-arc {
+  animation-fill-mode: both;
+}
+.santa-arc-dip { animation-name: santa-arc-dip; }
+.santa-arc-hump { animation-name: santa-arc-hump; }
+@keyframes santa-arc-dip {
+  0%, 100% { transform: translate3d(0, 0, 0); animation-timing-function: ease-in-out; }
+  50% { transform: translate3d(0, 8vh, 0); animation-timing-function: ease-in-out; }
+}
+@keyframes santa-arc-hump {
+  0%, 100% { transform: translate3d(0, 0, 0); animation-timing-function: ease-in-out; }
+  50% { transform: translate3d(0, -7vh, 0); animation-timing-function: ease-in-out; }
+}
+.santa-scale {
+  transform-origin: 50% 50%;
+}
+.santa-bob {
+  position: relative;
+  width: clamp(19rem, 60vmin, 40rem);
+  aspect-ratio: 10 / 3;
+  animation: santa-bob 3.2s ease-in-out infinite alternate;
+}
+@keyframes santa-bob {
+  from { transform: translate3d(0, -4%, 0) rotate(-1.5deg); }
+  to { transform: translate3d(0, 5%, 0) rotate(1.5deg); }
+}
+.santa-sleigh {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 30%;
+  height: auto;
+}
+.sleigh-glow {
+  position: absolute;
+  left: -8%;
+  top: 14%;
+  width: 46%;
+  height: 100%;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgb(255 226 140 / 0.5) 0%, rgb(255 200 90 / 0.18) 55%, transparent 100%);
+  animation: sleigh-glow 2.2s ease-in-out infinite alternate;
+}
+@keyframes sleigh-glow {
+  from { opacity: 0.6; transform: scale(0.94); }
+  to { opacity: 1; transform: scale(1.05); }
+}
+.santa-reins {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.reindeer {
+  position: absolute;
+  width: 17%;
+  aspect-ratio: 100 / 70;
+  animation: reindeer-bob 0.62s ease-in-out infinite alternate;
+}
+@keyframes reindeer-bob {
+  from { transform: translate3d(0, -5%, 0) rotate(-3deg); }
+  to { transform: translate3d(0, 6%, 0) rotate(2deg); }
+}
+.reindeer .art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+/* Galloping through the air: front and back legs swing in opposite phase. */
+.legs-front {
+  transform-origin: 62% 66%;
+  animation: legs-front 0.62s ease-in-out infinite alternate;
+}
+.legs-back {
+  transform-origin: 32% 66%;
+  animation: legs-back 0.62s ease-in-out infinite alternate;
+}
+@keyframes legs-front {
+  from { transform: rotate(-38deg); }
+  to { transform: rotate(18deg); }
+}
+@keyframes legs-back {
+  from { transform: rotate(22deg); }
+  to { transform: rotate(-30deg); }
+}
+.rudolph-glow {
+  position: absolute;
+  left: 86%;
+  top: 14%;
+  width: 22%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgb(255 80 80 / 0.85) 0%, rgb(255 40 40 / 0.3) 50%, transparent 100%);
+  animation: sleigh-glow 0.9s ease-in-out infinite alternate;
+}
+.santa-spark {
+  position: absolute;
+  margin: -0.5rem 0 0 -0.5rem;
+  animation: trail-twinkle 1.2s ease-in-out infinite;
+}
+.santa-spark .art {
+  width: 100%;
+  height: auto;
+}
+@keyframes trail-twinkle {
+  0%, 100% { transform: scale(0.3) rotate(0deg); opacity: 0.2; }
+  45% { transform: scale(1) rotate(25deg); opacity: 1; }
+}
+
+.tree-star {
+  transform-origin: 50% 50%;
+  animation: star-pulse 2.4s ease-in-out infinite;
+}
+@keyframes star-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.18);
+  }
+}
+.deco-corner {
+  position: absolute;
+  top: 0.9rem;
+  width: 4rem;
+  height: auto;
+}
+.deco-corner-left {
+  left: 0.3rem;
+  transform: rotate(-12deg);
+}
+.deco-corner-right {
+  right: 0.3rem;
+  transform: rotate(12deg) scaleX(-1);
+}
+.snow-drift {
+  position: absolute;
+  left: -5%;
+  right: -5%;
+  bottom: 0;
+  height: 42%;
+  border-radius: 50% 50% 0 0 / 100% 100% 0 0;
+  background: linear-gradient(180deg, #ffffff, #dfe9f7);
+}
+.ground-tree,
+.ground-present {
+  position: absolute;
+  bottom: 18%;
+  height: auto;
+}
+.ground-tree-0 { left: 3vw; width: clamp(4rem, 8vmin, 7rem); }
+.ground-tree-1 { right: 3vw; width: clamp(3.5rem, 7vmin, 6rem); }
+.ground-present-0 { left: calc(3vw + clamp(4rem, 8vmin, 7rem)); width: clamp(2.5rem, 4.5vmin, 4rem); bottom: 14%; }
+.ground-present-1 { right: calc(3vw + clamp(3.5rem, 7vmin, 6rem)); width: clamp(2rem, 4vmin, 3.5rem); bottom: 14%; }
+
+/* ---------- Easter ---------- */
+
+.grass {
+  position: absolute;
+  left: -5%;
+  right: -5%;
+  bottom: 0;
+  height: 38%;
+  border-radius: 50% 50% 0 0 / 60% 60% 0 0;
+  background: linear-gradient(180deg, #a5e38a, #6cc070);
+}
+.ground-flower,
+.ground-egg,
+.ground-bunny {
+  position: absolute;
+  bottom: 12%;
+  height: auto;
+}
+.ground-flower {
+  width: clamp(2rem, 4vmin, 3.5rem);
+  transform-origin: 50% 100%;
+  animation: sway 4.5s ease-in-out infinite;
+}
+.ground-flower-0 { left: 2vw; }
+.ground-flower-1 { left: 17vw; animation-delay: -1.5s; }
+.ground-flower-2 { right: 2vw; animation-delay: -3s; }
+.ground-egg {
+  width: clamp(1.8rem, 3.5vmin, 3rem);
+  animation: egg-hop 2.6s ease-in-out infinite;
+}
+.ground-egg-0 { left: 8vw; }
+.ground-egg-1 { right: 12vw; animation-delay: -1.3s; }
+.ground-bunny {
+  right: 18vw;
+  width: clamp(3.5rem, 7vmin, 6rem);
+  bottom: 8%;
+  animation: bunny-peek 6s ease-in-out infinite;
+}
+@keyframes sway {
+  0%,
+  100% {
+    transform: rotate(-6deg);
+  }
+  50% {
+    transform: rotate(6deg);
+  }
+}
+@keyframes egg-hop {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  30% {
+    transform: translateY(-0.9rem) rotate(-8deg);
+  }
+  45% {
+    transform: translateY(0) rotate(5deg);
+  }
+}
+@keyframes bunny-peek {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-0.6rem);
+  }
+}
+
+/* ---------- Valentine's Day ---------- */
+
+.deco-rose {
+  width: 1.9rem;
+  top: 0.3rem;
+}
+
+/* ---------- New Year ---------- */
+
+.firework-slot {
+  position: absolute;
+  width: clamp(6rem, 14vmin, 12rem);
+  opacity: calc(0.85 * var(--fg-strength));
+}
+.firework {
+  display: block;
+  animation: burst 4.2s ease-out infinite;
+}
+.firework .art {
+  width: 100%;
+  height: auto;
+}
+.firework-0 { left: 6vw; top: 10vh; }
+.firework-1 { right: 8vw; top: 26vh; }
+.firework-2 { left: 22vw; top: 52vh; width: clamp(5rem, 11vmin, 9rem); }
+.firework-3 { right: 18vw; top: 70vh; width: clamp(5rem, 12vmin, 10rem); }
+.firework-1 .firework { animation-delay: -1.1s; }
+.firework-2 .firework { animation-delay: -2.3s; }
+.firework-3 .firework { animation-delay: -3.2s; }
+@keyframes burst {
+  0% {
+    transform: scale(0.15);
+    opacity: 0;
+  }
+  8% {
+    opacity: 1;
+  }
+  55% {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+  80%,
+  100% {
+    transform: scale(1.12);
+    opacity: 0;
+  }
+}
+
+/* ---------- Banners (home screen) ---------- */
+
+.season-banner,
+.birthday-banner {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: clamp(0.75rem, 2vmin, 1.5rem);
+  padding: clamp(0.85rem, 2vmin, 1.5rem) clamp(1rem, 3vmin, 2rem);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.season-art,
+.birthday-art {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 0.35rem;
+  height: clamp(5rem, 12vmin, 9.5rem);
+}
+.season-art .art,
+.birthday-art .art {
+  height: 100%;
+  width: auto;
+}
+.season-art .banner-art-small {
+  height: 72%;
+}
+.season-art .banner-art-tiny {
+  height: 48%;
+}
+.season-art .banner-art-float {
+  position: absolute;
+  top: -0.4rem;
+  right: -0.9rem;
+  height: 40%;
+  animation: float-bob 4s ease-in-out infinite;
+}
+.season-art-end .banner-art-float {
+  right: auto;
+  left: -0.9rem;
+}
+@keyframes float-bob {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-6deg);
+  }
+  50% {
+    transform: translateY(-0.6rem) rotate(6deg);
+  }
+}
+.banner-glow {
+  position: absolute;
+  inset: 15% 0 -10% 0;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgb(255 170 60 / 0.7) 0%, transparent 65%);
+  animation: candle 3.1s ease-in-out infinite;
+}
+.season-art-end .banner-glow {
+  inset: 35% 0 -10% 30%;
+}
+.banner-heartbeat {
+  transform-origin: 50% 60%;
+  animation: heartbeat 1.6s ease-in-out infinite;
+}
+@keyframes heartbeat {
+  0%,
+  40%,
+  100% {
+    transform: scale(1);
+  }
+  20% {
+    transform: scale(1.12);
+  }
+  30% {
+    transform: scale(0.97);
+  }
+}
+.banner-burst {
+  animation: burst 3.6s ease-out infinite;
+}
+.banner-burst-late {
+  animation-delay: -1.8s;
+}
+.season-text,
+.birthday-text {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+}
+.season-headline,
+.birthday-headline {
+  font-size: clamp(1.4rem, 1rem + 2.2vmin, 2.75rem);
+  font-weight: 900;
+  line-height: 1.1;
+}
+.season-tagline,
+.birthday-tagline {
+  font-size: clamp(1rem, 0.9rem + 0.6vmin, 1.35rem);
+  font-weight: 700;
+  opacity: 0.92;
+}
+.countdown {
+  display: grid;
+  justify-items: center;
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius);
+  background: #fffdf7;
+  color: #a3151f;
+  min-width: 5.5rem;
+  box-shadow: inset 0 -3px 0 rgb(0 0 0 / 0.08);
+}
+.countdown-number {
+  font-size: clamp(2rem, 1.4rem + 3vmin, 4rem);
+  font-weight: 900;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.countdown-label {
+  font-size: 0.85rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.season-halloween {
+  background:
+    radial-gradient(circle at 80% 20%, rgb(255 140 30 / 0.25) 0, transparent 40%),
+    linear-gradient(120deg, #241040 0%, #3d1a55 60%, #6a2a15 100%);
+  color: #fff1de;
+  border: 3px solid #ff8a1f;
+}
+.season-halloween .season-headline {
+  color: #ffb347;
+  text-shadow: 0 0 0.8rem rgb(255 140 0 / 0.55);
+}
+.season-christmas {
+  background:
+    radial-gradient(circle at 50% 0%, rgb(255 255 255 / 0.18) 0, transparent 45%),
+    linear-gradient(120deg, #0e4d30 0%, #1a6b42 55%, #9e1f1a 100%);
+  color: #fffaf0;
+  border: 3px solid #ffd166;
+}
+.season-christmas .countdown {
+  color: #9e1f1a;
+  border: 3px solid #ffd166;
+}
+.season-easter {
+  background: linear-gradient(120deg, #ffe4f1 0%, #ebe3ff 50%, #dff7ff 100%);
+  color: #43246b;
+  border: 3px solid #cdb4ff;
+}
+.season-valentines {
+  background: linear-gradient(120deg, #ffe0ea 0%, #ffc2d4 60%, #ffa3bc 100%);
+  color: #6e0b2c;
+  border: 3px solid #ff4d6d;
+}
+.season-newYear {
+  background:
+    radial-gradient(circle at 20% 30%, rgb(255 209 102 / 0.18) 0, transparent 40%),
+    linear-gradient(120deg, #0d1033 0%, #23285e 60%, #3d2a63 100%);
+  color: #fff8e1;
+  border: 3px solid #e8c66a;
+}
+.season-newYear .season-headline {
+  color: #ffd166;
+}
+.season-newYear .countdown {
+  color: #3d2a63;
+  border: 3px solid #e8c66a;
+}
+
+.birthday-banner {
+  grid-template-columns: auto 1fr auto;
+  background:
+    radial-gradient(circle at 8% 20%, #ffe8a3 0, transparent 30%),
+    radial-gradient(circle at 92% 80%, #cdb4ff 0, transparent 30%),
+    linear-gradient(120deg, #fff4fa 0%, #fff7e0 50%, #e9f6ff 100%);
+  color: #5a1a6e;
+  border: 3px solid #ff6b9a;
+}
+.birthday-headline {
+  color: #b0175a;
+}
+.birthday-art .banner-balloon {
+  height: 100%;
+  transform-origin: 50% 100%;
+  animation: sway 3.8s ease-in-out infinite;
+}
+.birthday-art .banner-balloon-1 {
+  height: 85%;
+  animation-delay: -1.2s;
+}
+.birthday-art .banner-balloon-2 {
+  height: 92%;
+  animation-delay: -2.4s;
+}
+.birthday-art .banner-present {
+  height: 62%;
+}
+.flame {
+  transform-origin: 50% 100%;
+  animation: flame 0.9s ease-in-out infinite alternate;
+}
+@keyframes flame {
+  from {
+    transform: scale(0.85, 1);
+    opacity: 0.85;
+  }
+  to {
+    transform: scale(1.05, 1.15);
+    opacity: 1;
+  }
+}
+.birthday-banner-compact {
+  padding-block: 0.6rem;
+}
+.birthday-banner-compact .birthday-art {
+  height: clamp(3rem, 6vmin, 5rem);
+}
+.birthday-banner-compact .birthday-headline {
+  font-size: clamp(1.2rem, 0.9rem + 1.6vmin, 2rem);
+}
+
+.birthday-badge {
+  display: inline-block;
+  margin-left: 0.6rem;
+  padding: 0.1rem 0.65rem;
+  border-radius: 999px;
+  background: #ffd166;
+  color: #5c4000;
+  font-size: 0.75em;
+  font-weight: 900;
+  vertical-align: middle;
+}
+
+@media (max-width: 40rem) {
+  .season-banner {
+    grid-template-columns: auto 1fr;
+  }
+  .season-art-end,
+  .birthday-art-end {
+    display: none;
+  }
+  .birthday-banner {
+    grid-template-columns: auto 1fr;
+  }
+  .countdown {
+    grid-column: 1 / -1;
+    justify-self: start;
+    grid-auto-flow: column;
+    align-items: baseline;
+    gap: 0.5rem;
+  }
+  .spider-drop {
+    display: none;
+  }
+}
+
+/* ---------- Birthday celebration pop-up ---------- */
+
+.birthday-celebration {
+  display: grid;
+  gap: 1rem;
+  text-align: center;
+}
+.celebration-burst {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  gap: 1rem;
+  height: clamp(8rem, 18vmin, 13rem);
+}
+.celebration-cake {
+  height: 85%;
+  width: auto;
+}
+.celebration-balloon {
+  height: 100%;
+  width: auto;
+  transform-origin: 50% 100%;
+  animation: sway 3s ease-in-out infinite;
+}
+.celebration-balloon-1 {
+  animation-delay: -1.5s;
+}
+/* Each piece is turned to its own direction (still), and its ::before
+   flies outwards with fixed keyframes, so it runs on the GPU. */
+.burst-piece {
+  position: absolute;
+  left: 50%;
+  top: 45%;
+  width: 0.6rem;
+  height: 1rem;
+  transform: rotate(calc(var(--i) * 25.7deg));
+  --c: #ff4d6d;
+}
+.burst-piece:nth-child(3n + 1) { --c: #ffd166; }
+.burst-piece:nth-child(3n + 2) { --c: #4cc9f0; }
+.burst-piece:nth-child(4n) { --c: #80ed99; }
+.burst-piece::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 2px;
+  background: var(--c);
+  transform: translateY(-5.5rem);
+  animation: confetti-burst 1.8s ease-out 3;
+}
+@keyframes confetti-burst {
+  from {
+    transform: translateY(0) scale(0.3);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(-7rem) scale(1);
+    opacity: 0;
+  }
+}
+.celebration-message {
+  font-size: 1.35rem;
+  font-weight: 800;
+}
+.celebration-rewards {
+  display: grid;
+  gap: 0.5rem;
+  padding: 1rem;
+  border-radius: var(--radius);
+  background: #fff7dc;
+  border: 3px solid #ffd166;
+  font-size: 1.3rem;
+  font-weight: 900;
+  color: #5c4000;
+}
+.celebration-problem {
+  font-size: 1rem;
+  color: var(--ink-soft);
+}
+.celebration-preview-note {
+  font-weight: 800;
+  color: var(--primary);
+}
+.birthday-celebration .button-row {
+  justify-content: center;
+}
+.button-celebrate {
+  font-size: 1.25rem;
+}
+
+/* ---------- Preview bar ----------
+   A floating pill at the bottom, so the garland at the top of the screen
+   stays visible while a parent previews. */
+
+/* Toasts move up above the preview bar while a preview runs. */
+:root[data-celebration-preview] .toast-region {
+  bottom: calc(max(1rem, env(safe-area-inset-bottom)) + 6.5rem);
+}
+.preview-bar {
+  position: fixed;
+  left: 50%;
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  z-index: var(--z-preview-bar);
+  width: min(94vw, 52rem);
+  transform: translateX(-50%);
+  border: 3px solid #b39cf5;
+  border-radius: var(--radius-lg);
+  background: #f4efff;
+  color: #3b2380;
+  box-shadow: var(--shadow-lg);
+}
+
+/* ---------- Parent area: Themes & Celebrations ---------- */
+
+.celebrations-panel {
+  display: grid;
+  gap: 1.25rem;
+}
+.celebrations-now-text {
+  font-size: 1.2rem;
+}
+.theme-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+  align-items: start;
+}
+.theme-card {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1.25rem;
+  border: 2px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+.theme-card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+.theme-card-icon {
+  font-family: var(--font-emoji);
+  font-size: 1.8rem;
+}
+.theme-card-title {
+  font-size: 1.25rem;
+  font-weight: 900;
+  margin-right: auto;
+}
+.status-pill {
+  padding: 0.15rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 900;
+  border: 2px solid currentColor;
+}
+.status-active {
+  color: var(--success-ink);
+  background: var(--success-soft);
+}
+.status-upcoming {
+  color: #0b5899;
+  background: #e0f1ff;
+}
+.status-disabled {
+  color: var(--ink-soft);
+  background: #f1eef4;
+}
+.theme-state-active {
+  border-color: #74d8a6;
+}
+.theme-state-disabled {
+  background: #fbfafc;
+}
+.theme-dates {
+  line-height: 1.5;
+}
+.theme-when {
+  font-weight: 700;
+}
+.theme-countdown {
+  justify-self: start;
+  padding: 0.3rem 0.8rem;
+  border-radius: 999px;
+  background: #fff3d1;
+  color: #5c4000;
+  font-weight: 900;
+}
+.theme-actions {
+  justify-content: flex-start;
+}
+.dates-form {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+  border-radius: var(--radius);
+  background: var(--surface-muted);
+  border: 2px solid var(--line);
+}
+.birthday-date-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 1rem;
+}
+.birthday-reward {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 1rem;
+  border: 2px solid var(--line);
+  border-radius: var(--radius);
+}
+.birthday-status {
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius);
+  background: #fff7dc;
+  color: #5c4000;
+  font-weight: 700;
+}
+.birthday-list .admin-meta {
+  white-space: normal;
+}
+.history-bonus {
+  background: #fff7dc;
+}
+
+/* An on/off switch built on a real checkbox (keyboard and screen readers). */
+.switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: var(--touch);
+  font-weight: 800;
+  cursor: pointer;
+  justify-self: start;
+}
+.switch input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+.switch-track {
+  position: relative;
+  flex: none;
+  width: 3.4rem;
+  height: 2rem;
+  border-radius: 999px;
+  background: var(--line-strong);
+  transition: background-color 0.2s;
+}
+.switch-track::after {
+  content: '';
+  position: absolute;
+  top: 0.25rem;
+  left: 0.25rem;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.2s;
+}
+.switch input:checked + .switch-track {
+  background: var(--success);
+}
+.switch input:checked + .switch-track::after {
+  transform: translateX(1.4rem);
+}
+.switch input:focus-visible + .switch-track {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+.switch input:disabled + .switch-track {
+  opacity: 0.6;
+}
+
+/* ---------- Motion ---------- */
+
+/* Long idle on the kiosk: freeze (the decorations stay). */
+.celebration-paused,
+.celebration-paused * {
+  animation-play-state: paused !important;
+}
+
+/* Reduced motion: no animation at all; each piece rests where it stands. */
+@media (prefers-reduced-motion: reduce) {
+  .celebration-layers *,
+  .season-banner *,
+  .birthday-banner *,
+  .birthday-celebration *,
+  .birthday-celebration *::before,
+  .switch-track,
+  .switch-track::after {
+    animation: none !important;
+    transition: none !important;
+  }
+  /* Still pieces are scattered over the screen instead of waiting at an edge. */
+  .fall-column {
+    transform: translate3d(0, calc(var(--y) * 1%), 0);
+  }
+  .rise-column {
+    transform: translate3d(0, calc(var(--y) * 1%), 0);
+  }
+  .bat-flight {
+    transform: translate3d(var(--rest), 0, 0);
+  }
+  /* Bats rest with wings spread, as in a photo. */
+  .bat-wing-left {
+    transform: rotate(12deg) scaleY(0.85);
+  }
+  .bat-wing-right {
+    transform: rotate(-12deg) scaleY(0.85);
+  }
+  /* (Santa doesn't fly with reduced motion: state/flyby.ts.) */
+  /* Still lights: most bulbs lit, a few resting dim, like a photo. */
+  .bulb-light {
+    opacity: 0.85;
+  }
+  .fairy-bulb:nth-child(3n + 1) .bulb-light {
+    opacity: 0.35;
+  }
+}

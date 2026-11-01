@@ -1,5 +1,5 @@
 import { useRef, useState, type KeyboardEvent } from 'react';
-import type { DateKey, FamilyData } from '../../types';
+import type { BirthdayReward, DateKey, FamilyData } from '../../types';
 import type { DataSource } from '../../config';
 import { ScreenTitle } from '../../components/ScreenTitle';
 import type { FamilyActions } from '../../state/useFamilyStore';
@@ -10,9 +10,11 @@ import { MealsPanel } from './MealsPanel';
 import { RewardsPanel } from './RewardsPanel';
 import { SettingsPanel } from './SettingsPanel';
 import { AccessPanel } from './AccessPanel';
+import { CelebrationsPanel } from './CelebrationsPanel';
 import type { Access } from '../../state/access';
+import type { CelebrationPreview } from '../../state/celebration';
 
-export type ParentTab = 'chores' | 'history' | 'children' | 'meals' | 'rewards' | 'settings' | 'access';
+export type ParentTab = 'chores' | 'history' | 'children' | 'meals' | 'rewards' | 'celebrations' | 'settings' | 'access';
 type Tab = ParentTab;
 
 const ACCESS_TAB = { id: 'access' as const, label: 'Family access', icon: '🔑' };
@@ -22,6 +24,7 @@ const BASE_TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'children', label: 'Children', icon: '👧' },
   { id: 'meals', label: 'School meals', icon: '🍽️' },
   { id: 'rewards', label: 'Rewards', icon: '🎁' },
+  { id: 'celebrations', label: 'Themes & Celebrations', icon: '🎉' },
   { id: 'settings', label: 'Settings', icon: '⚙️' },
 ];
 
@@ -35,9 +38,11 @@ interface ParentAreaProps {
   access?: Access | null;
   onExit: () => void;
   onSignOut?: () => void;
+  /** Preview a theme or birthday on this screen (nothing is saved). */
+  onPreview?: (preview: CelebrationPreview, reward?: BirthdayReward) => void;
 }
 
-export function ParentArea({ data, actions, mode, today, initialTab = 'chores', access = null, onExit, onSignOut }: ParentAreaProps) {
+export function ParentArea({ data, actions, mode, today, initialTab = 'chores', access = null, onExit, onSignOut, onPreview = () => {} }: ParentAreaProps) {
   const TABS = access ? [...BASE_TABS, ACCESS_TAB] : BASE_TABS;
   const [tab, setTab] = useState<Tab>(initialTab);
   // On a parent's own (unpaired) device, leaving keeps them signed in; on a
@@ -49,6 +54,7 @@ export function ParentArea({ data, actions, mode, today, initialTab = 'chores', 
     children: null,
     meals: null,
     rewards: null,
+    celebrations: null,
     settings: null,
     access: null,
   });
@@ -103,10 +109,11 @@ export function ParentArea({ data, actions, mode, today, initialTab = 'chores', 
       <section id={`panel-${tab}`} role="tabpanel" aria-labelledby={`tab-${tab}`} className="tab-panel">
         {tab === 'chores' && <ChoresPanel data={data} actions={actions} />}
         {tab === 'history' && <HistoryPanel data={data} today={today} />}
-        {tab === 'children' && <ChildrenPanel data={data} actions={actions} />}
+        {tab === 'children' && <ChildrenPanel data={data} actions={actions} today={today} onPreview={onPreview} />}
         {tab === 'meals' && <MealsPanel data={data} actions={actions} today={today} />}
         {tab === 'rewards' && <RewardsPanel data={data} actions={actions} />}
-        {tab === 'settings' && <SettingsPanel data={data} actions={actions} mode={mode} />}
+        {tab === 'celebrations' && <CelebrationsPanel data={data} actions={actions} today={today} onPreview={onPreview} />}
+        {tab === 'settings' && <SettingsPanel data={data} actions={actions} mode={mode} onOpenCelebrations={() => setTab('celebrations')} />}
         {tab === 'access' && access && <AccessPanel access={access} onSignOut={() => onSignOut?.()} />}
       </section>
     </main>

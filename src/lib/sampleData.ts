@@ -1,3 +1,4 @@
+import { defaultCelebrationSettings } from './celebrations';
 import { DATA_VERSION, type Chore, type Completion, type DateKey, type FamilyData, type MealEntry, type Reward, type Weekday } from '../types';
 import { addDays, isScheduledOn } from './dates';
 import { foodOptionsFromNames } from './foodOptions';
@@ -135,5 +136,9 @@ export function createSampleData(today: DateKey, now: Date = new Date()): Family
       [...SAMPLE_MENU.map((m) => m.main), ...EXTRA_MAINS],
       [...SAMPLE_MENU.map((m) => m.pudding), ...EXTRA_PUDDINGS],
     ),
+
+    celebrations: defaultCelebrationSettings(),
+    birthdays: [],
+    bonusAwards: [],
   };
 }

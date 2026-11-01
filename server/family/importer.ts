@@ -7,7 +7,7 @@ import { fromLib, toLib, validateDocument, type FamilyDocument } from './documen
 
 // Validation of family-data files for import. Accepts:
 //   - an export file: { app: "smart-family-chore-chart", exportFormat: 1, data: <family data> }
-//   - raw browser data from v0.1.0-v0.3.0 (format versions 1, 2 or 3),
+//   - raw browser data (format versions 1-4), from v0.1.0 onwards,
 //     e.g. the value of localStorage "smart-family-chore-chart:data".
 // Any legacy client-side PIN is ignored and never stored. Files that are
 // not usable, from a newer version, or contain invalid records are rejected
@@ -17,7 +17,7 @@ export { EXPORT_APP, EXPORT_FORMAT };
 export type { ExportFile };
 
 export interface ImportSummary {
-  /** Data format version found in the file (1, 2 or 3). */
+  /** Data format version found in the file (1-4). */
   sourceFormatVersion: number;
   /** True if the data was upgraded to the current format. */
   upgraded: boolean;
@@ -43,7 +43,7 @@ export type ImportParse =
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
-const LISTS = ['children', 'chores', 'rewards', 'completions', 'redemptions', 'meals'] as const;
+const LISTS = ['children', 'chores', 'rewards', 'completions', 'redemptions', 'meals', 'birthdays', 'bonusAwards'] as const;
 
 export function checksumOf(doc: FamilyDocument): string {
   return createHash('sha256').update(JSON.stringify(doc)).digest('hex');

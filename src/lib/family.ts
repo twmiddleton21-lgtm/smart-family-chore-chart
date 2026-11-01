@@ -1,6 +1,6 @@
 import type { FamilyData } from '../types';
 
-type FamilyContent = Pick<FamilyData, 'children' | 'chores' | 'rewards' | 'completions' | 'redemptions' | 'meals' | 'foodOptions'>;
+type FamilyContent = Pick<FamilyData, 'children' | 'chores' | 'rewards' | 'completions' | 'redemptions' | 'meals' | 'foodOptions'> & Partial<Pick<FamilyData, 'birthdays' | 'bonusAwards'>>;
 
 /** True when the household has no family data at all (a fresh installation). */
 export function isEmptyFamily(data: FamilyContent): boolean {
@@ -12,6 +12,8 @@ export function isEmptyFamily(data: FamilyContent): boolean {
     data.redemptions.length === 0 &&
     data.meals.length === 0 &&
     data.foodOptions.mains.length === 0 &&
-    data.foodOptions.puddings.length === 0
+    data.foodOptions.puddings.length === 0 &&
+    (data.birthdays?.length ?? 0) === 0 &&
+    (data.bonusAwards?.length ?? 0) === 0
   );
 }

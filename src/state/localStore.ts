@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FamilyData } from '../types';
 import { toggleChore } from '../lib/chores';
+import { birthdaysToday, claimBirthdayReward, removeBirthday, saveCelebrationSettings, setBirthday } from '../lib/celebrations';
 import { toDateKey } from '../lib/dates';
 import { toExportFile } from '../lib/exportFile';
 import { addFoodOption, removeFoodOption } from '../lib/foodOptions';
@@ -99,6 +100,15 @@ export function useLocalFamilyStore(): FamilyStore {
       },
       resetDemoData: async () => commitOk(resetData(storage, now())),
       loadDemoFamily: async () => unsupported('Use “Reset to sample data” in this version.'),
+      saveCelebrationSettings: async (settings) => commitOk(saveCelebrationSettings(dataRef.current, settings)),
+      saveBirthday: async (value) => commitOk(setBirthday(dataRef.current, value)),
+      removeBirthday: async (childId) => commitOk(removeBirthday(dataRef.current, childId)),
+      claimBirthdayReward: async (childId) => {
+        const r = claimBirthdayReward(dataRef.current, childId, now());
+        if (!r.ok) return { ok: false, error: r.error, kind: 'local' };
+        if (r.awarded) commit(r.data);
+        return { ok: true, awarded: r.awarded, award: r.award };
+      },
       versionOf: () => 0,
       exportData: async () => ({ ok: true, file: toExportFile(dataRef.current, 'browser') }),
       previewImport: async () => unsupported('Importing needs the shared family server.'),
@@ -116,6 +126,7 @@ export function useLocalFamilyStore(): FamilyStore {
     connectionLost: false,
     saveFailed,
     loadNotice: LOAD_MESSAGES[boot.status] ?? null,
+    birthdaysToday: birthdaysToday(data, today),
     actions,
   };
 }

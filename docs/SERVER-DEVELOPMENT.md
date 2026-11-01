@@ -6,7 +6,8 @@
 ## What exists
 
 - **Fastify** HTTP server (`server/`) with a **SQLite** database (built-in `node:sqlite`; the only file that uses it is `server/db/database.ts`).
-- **One family document** per installation (the browser's data format v3, **without** the old client-side PIN), with a version number. Every change is a *command* applied by the existing business-rule functions in `src/lib` inside one write transaction.
+- **Public seasonal theme:** `GET /api/celebrations/theme` needs no sign-in (the sign-in and pairing screens are decorated too). It returns only `{ today, occurrence: { themeId, holiday, start, end, custom } | null }`: nothing about the children, birthdays, rewards or the family name.
+- **One family document** per installation (the browser's data format v4, **without** the old client-side PIN; a v3 document from 0.6.0 or earlier is upgraded once at start-up, after a verified backup — see `server/open.ts`), with a version number. Every change is a *command* applied by the existing business-rule functions in `src/lib` inside one write transaction.
 - **Numbered, transactional schema migrations** (`server/db/migrations.ts`). A verified backup is taken automatically before an existing database is upgraded. The server refuses to open a database from a newer release. Migration 2 (Stage C) adds the `parents`, `devices`, `sessions` and `pairing_codes` tables and leaves family data untouched.
 - **Online, WAL-safe backups** and an **offline restore** (`server/db/backup.ts`, `server/cli.ts`).
 - **Household time zone** for "today" (`SFCC_TIMEZONE`, or `TZ`).

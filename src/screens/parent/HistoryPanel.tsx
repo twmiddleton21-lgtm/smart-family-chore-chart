@@ -143,6 +143,8 @@ export function HistoryPanel({ data, today }: PanelProps) {
 
       {children.map((child) => {
         const day = childHistoryOn(data, child.id, date);
+        const bonuses = data.bonusAwards.filter((a) => a.childId === child.id && a.date === date);
+        const bonusPoints = bonuses.reduce((sum, a) => sum + a.points, 0);
         return (
           <section key={child.id} className={`admin-group accent-${child.color}`} aria-label={`${child.name}'s chores on ${full}`}>
             <h3 className="admin-group-title">
@@ -150,8 +152,32 @@ export function HistoryPanel({ data, today }: PanelProps) {
               <span className="muted">
                 {' '}
                 · {day.done} of {day.total} done · ⭐ {day.pointsEarned} points
+                {bonusPoints > 0 ? ` + 🎂 ${bonusPoints} bonus` : ''}
               </span>
             </h3>
+            {bonuses.length > 0 && (
+              <ul className="admin-list">
+                {bonuses.map((a) => {
+                  const time = completedAt(a.awardedAt);
+                  return (
+                    <li key={a.id} className="admin-row history-row history-done history-bonus">
+                      <span className="admin-icon" aria-hidden="true">
+                        🎂
+                      </span>
+                      <span className="admin-main">
+                        <span className="admin-name">Birthday reward{a.note ? `: ${a.note}` : ''}</span>
+                        <span className="admin-meta">
+                          ⭐ +{a.points} bonus points{time ? ` · given at ${time}` : ''}
+                        </span>
+                      </span>
+                      <span className="history-status history-status-done">
+                        <span aria-hidden="true">🎁</span> Given
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
             {day.items.length === 0 ? (
               <p className="muted">No chores that day.</p>
             ) : (

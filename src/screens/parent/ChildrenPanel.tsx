@@ -1,5 +1,8 @@
 import { useState, type FormEvent } from 'react';
-import type { Child, FamilyData } from '../../types';
+import type { BirthdayReward, Child, DateKey, FamilyData } from '../../types';
+import { birthdayLabel, birthdayOf } from '../../lib/celebrations';
+import type { CelebrationPreview } from '../../state/celebration';
+import { BirthdayDialog } from './BirthdayDialog';
 import { validateChild, LIMITS, type ChildDraft, type ChildField } from '../../lib/validation';
 import { pointsBalance } from '../../lib/points';
 import { Avatar } from '../../components/Avatar';
@@ -15,14 +18,17 @@ const AVATARS = ['🦄', '🦖', '🦊', '🐼', '🐯', '🐸', '🐙', '🦁',
 interface PanelProps {
   data: FamilyData;
   actions: FamilyActions;
+  today: DateKey;
+  onPreview?: (preview: CelebrationPreview, reward?: BirthdayReward) => void;
 }
 
 // `version`: the record version when the dialog opened, so a stale save is refused (409).
 type Editing = { mode: 'add' } | { mode: 'edit'; child: Child; version: number } | null;
 
-export function ChildrenPanel({ data, actions }: PanelProps) {
+export function ChildrenPanel({ data, actions, today, onPreview }: PanelProps) {
   const notify = useToast();
   const [editing, setEditing] = useState<Editing>(null);
+  const [birthdayFor, setBirthdayFor] = useState<Child | null>(null);
   const [deleting, setDeleting] = useState<Child | null>(null);
   const [deleteVersion, setDeleteVersion] = useState(0);
   const startDelete = (item: Child) => {
@@ -52,6 +58,10 @@ export function ChildrenPanel({ data, actions }: PanelProps) {
                 <span className="admin-name">{child.name}</span>
                 <span className="admin-meta">
                   {data.chores.filter((c) => c.childId === child.id).length} chores · ⭐ {pointsBalance(data, child.id)} points
+                  {(() => {
+                    const b = birthdayOf(data, child.id);
+                    return b ? ` · 🎂 ${birthdayLabel(b)}` : '';
+                  })()}
                 </span>
               </span>
               <span className="admin-actions">
@@ -62,6 +72,14 @@ export function ChildrenPanel({ data, actions }: PanelProps) {
                   aria-label={`Edit ${child.name}`}
                 >
                   Edit
+                </button>
+                <button
+                  type="button"
+                  className="button button-secondary"
+                  onClick={() => setBirthdayFor(child)}
+                  aria-label={`${child.name}’s birthday`}
+                >
+                  <span aria-hidden="true">🎂</span> Birthday
                 </button>
                 <button
                   type="button"
@@ -94,6 +112,17 @@ export function ChildrenPanel({ data, actions }: PanelProps) {
         />
       )}
 
+      {birthdayFor && (
+        <BirthdayDialog
+          child={birthdayFor}
+          data={data}
+          today={today}
+          actions={actions}
+          onClose={() => setBirthdayFor(null)}
+          onPreview={onPreview ? (childId, reward) => onPreview({ kind: 'birthday', childId }, reward) : undefined}
+        />
+      )}
+
       {deleting && (
         <ConfirmDialog
           title={`Delete ${deleting.name}?`}
@@ -120,7 +149,7 @@ export function ChildrenPanel({ data, actions }: PanelProps) {
           <ul className="plain-list">
             <li>{data.chores.filter((c) => c.childId === deleting.id).length} chores</li>
             <li>⭐ {pointsBalance(data, deleting.id)} points and their history</li>
-            <li>Redeemed rewards and planned school meals</li>
+            <li>Redeemed rewards, planned school meals and their birthday</li>
           </ul>
           <p>Other children are not affected. This can’t be undone.</p>
         </ConfirmDialog>

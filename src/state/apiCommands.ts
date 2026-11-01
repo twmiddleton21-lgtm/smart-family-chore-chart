@@ -1,5 +1,5 @@
 import type { CommandBody } from '../api/client';
-import type { Child, Chore, DateKey, FoodCategory, Reward } from '../types';
+import type { CelebrationSettings, ChildBirthday, Child, Chore, DateKey, FoodCategory, Reward } from '../types';
 import type { MealRow } from '../lib/meals';
 
 // Pure mapping from UI actions to server commands (kept separate so it can
@@ -12,6 +12,8 @@ export const recordKey = {
   reward: (id: string) => `reward:${id}`,
   mealWeek: (childId: string, monday: DateKey) => `mealWeek:${childId}:${monday}`,
   settings: () => 'settings:household',
+  celebrations: () => 'celebrations:household',
+  birthday: (childId: string) => `birthday:${childId}`,
 };
 
 type VersionOf = (key: string) => number;
@@ -90,4 +92,31 @@ export const commands = {
   }),
 
   loadDemoFamily: (): CommandBody => ({ type: 'loadDemoFamily', payload: {} }),
+
+  saveCelebrationSettings: (settings: CelebrationSettings, base: number | undefined, versionOf: VersionOf): CommandBody => ({
+    type: 'saveCelebrationSettings',
+    payload: { settings },
+    expectedVersion: versioned(recordKey.celebrations(), base, versionOf),
+  }),
+
+  saveBirthday: (value: ChildBirthday, base: number | undefined, versionOf: VersionOf): CommandBody => ({
+    type: 'saveBirthday',
+    payload: {
+      childId: value.childId,
+      month: value.month,
+      day: value.day,
+      rewardEnabled: value.reward.enabled,
+      points: value.reward.points,
+      gift: value.reward.gift,
+    },
+    expectedVersion: versioned(recordKey.birthday(value.childId), base, versionOf),
+  }),
+
+  removeBirthday: (childId: string, base: number | undefined, versionOf: VersionOf): CommandBody => ({
+    type: 'removeBirthday',
+    payload: { childId },
+    expectedVersion: versioned(recordKey.birthday(childId), base, versionOf),
+  }),
+
+  claimBirthdayReward: (childId: string): CommandBody => ({ type: 'claimBirthdayReward', payload: { childId } }),
 };

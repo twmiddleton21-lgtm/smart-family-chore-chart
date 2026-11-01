@@ -10,6 +10,7 @@ import type { FamilyCalendar, FamilyCalendarError } from './calendar/familyCalen
 import { createBackup } from './db/backup';
 import type { SqlDatabase } from './db/database';
 import { currentSchemaVersion, LATEST_SCHEMA_VERSION } from './db/migrations';
+import { activeTheme, birthdaysToday } from '../src/lib/celebrations';
 import { COMMAND_TYPES, type Command, type CommandType } from './family/commands';
 import { buildExportFile, parseImport } from './family/importer';
 import type { FamilyStore } from './family/store';
@@ -41,7 +42,7 @@ export interface AppDeps {
 }
 
 /** What a paired device may do without a parent signed in. */
-export const DEVICE_COMMANDS: ReadonlySet<CommandType> = new Set(['toggleChore', 'redeemReward', 'dismissMealReminder']);
+export const DEVICE_COMMANDS: ReadonlySet<CommandType> = new Set(['toggleChore', 'redeemReward', 'dismissMealReminder', 'claimBirthdayReward']);
 
 export const PARENT_COOKIE = 'sfcc_parent';
 export const DEVICE_COOKIE = 'sfcc_device';
@@ -486,14 +487,30 @@ export function buildApp(deps: AppDeps): FastifyInstance {
 
   // ---------- family data ----------
 
-  app.get('/api/state', { preParsing: requireHousehold }, async () => {
+  // Today's seasonal theme, for screens shown before sign-in or pairing (so
+  // the whole app is decorated, login included). Public on purpose and kept
+  // to the minimum: which theme and its dates. Nothing about the children,
+  // birthdays or rewards; no family name.
+  app.get('/api/celebrations/theme', async () => {
+    const today = store.today();
+    const occurrence = activeTheme(store.read().family.celebrations, today);
+    return { today, occurrence: occurrence ? { themeId: occurrence.themeId, holiday: occurrence.holiday, start: occurrence.start, end: occurrence.end, custom: occurrence.custom } : null };
+  });
+
+  // Children's birthdays and birthday-reward settings are for parents only:
+  // a paired device gets an empty `birthdays` list and just `birthdaysToday`
+  // (whose birthday it is today and whether its reward has been given).
+  app.get('/api/state', { preParsing: requireHousehold }, async (request) => {
     const state = store.read();
+    const today = store.today();
+    const parentView = dev || ctxOf(request).parent !== null;
     return {
       stateVersion: state.stateVersion,
       recordVersions: state.recordVersions,
-      family: state.family,
-      today: store.today(),
+      family: parentView ? state.family : { ...state.family, birthdays: [] },
+      today,
       timeZone: config.timeZone,
+      birthdaysToday: birthdaysToday(state.family, today),
     };
   });
 

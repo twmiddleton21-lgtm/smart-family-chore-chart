@@ -50,6 +50,7 @@ async function main(): Promise<void> {
   app.log.info({ database: databasePath(config.dataDir), timeZone: config.timeZone, today: opened.store.today() }, 'data opened');
   if (opened.created) app.log.info('created a new, empty household');
   if (opened.migrated.length) app.log.info({ migrations: opened.migrated, backup: opened.preMigrationBackup }, 'schema migrated');
+  if (opened.formatUpgrade) app.log.info(opened.formatUpgrade, 'family data format upgraded (backup taken first)');
   if (config.devUnauthenticatedApi) {
     app.log.warn(
       'DEVELOPMENT MODE: the family data API has NO authentication and is limited to loopback clients. Never use this for real families or expose it on a network.',

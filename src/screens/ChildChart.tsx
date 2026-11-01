@@ -6,6 +6,7 @@ import { Avatar } from '../components/Avatar';
 import { PeriodSection } from '../components/PeriodSection';
 import { ProgressBar } from '../components/ProgressBar';
 import { ScreenTitle } from '../components/ScreenTitle';
+import { BirthdayBanner } from '../components/celebrations/Banners';
 import type { FamilyActions } from '../state/useFamilyStore';
 import { useToast } from '../state/toast';
 
@@ -16,11 +17,13 @@ interface ChildChartProps {
   actions: FamilyActions;
   onBack: () => void;
   onOpenRewards: () => void;
+  /** It's this child's birthday (and the birthday theme is on). */
+  birthday?: boolean;
 }
 
 const CHEERS = ['Great job', 'Nice work', 'Brilliant', 'Super', 'Way to go', 'Awesome'];
 
-export function ChildChart({ data, child, today, actions, onBack, onOpenRewards }: ChildChartProps) {
+export function ChildChart({ data, child, today, actions, onBack, onOpenRewards, birthday = false }: ChildChartProps) {
   const notify = useToast();
   const chores = choresForChildOn(data, child.id, today);
   const byPeriod = choresByPeriod(chores);
@@ -58,6 +61,8 @@ export function ChildChart({ data, child, today, actions, onBack, onOpenRewards 
           <span aria-hidden="true">🎁</span> Rewards
         </button>
       </header>
+
+      {birthday && <BirthdayBanner children={[child]} compact />}
 
       <section className="chart-hero">
         <Avatar child={child} size="lg" />

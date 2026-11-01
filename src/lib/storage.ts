@@ -17,6 +17,7 @@ import {
   type Settings,
   type Weekday,
 } from '../types';
+import { defaultCelebrationSettings, parseCelebrationSettings, toBirthday, toBonusAward } from './celebrations';
 import { isDateKey } from './dates';
 import { deriveFoodOptions, foodKey } from './foodOptions';
 import { createSampleData, DEFAULT_PIN } from './sampleData';
@@ -195,18 +196,21 @@ export interface ParsedData {
  * Validate an unknown value as FamilyData. Returns null if the overall shape
  * is unusable (unknown version or missing collections). Older versions are
  * upgraded: v1 has no meals yet; v1 and v2 have no food catalog, so one is
- * derived from the existing meal names. Individual invalid records are
+ * derived from the existing meal names; v1-v3 have no seasonal themes,
+ * birthdays or bonus awards, so they get the defaults (every theme on with
+ * its default dates) and empty lists. Individual invalid records are
  * dropped and reported via `repaired`.
  */
 export function parseFamilyData(value: unknown, options: ParseOptions = {}): ParsedData | null {
   const pinRequired = options.pinRequired ?? true;
-  if (!isObj(value) || (value.version !== 1 && value.version !== 2 && value.version !== DATA_VERSION)) return null;
-  const version = value.version as 1 | 2 | 3;
+  if (!isObj(value) || ![1, 2, 3, DATA_VERSION].includes(value.version as number)) return null;
+  const version = value.version as 1 | 2 | 3 | 4;
   const migrated = version !== DATA_VERSION;
   const lists = ['children', 'chores', 'rewards', 'completions', 'redemptions'] as const;
   if (!lists.every((k) => Array.isArray(value[k]))) return null;
   if (version >= 2 && !Array.isArray(value.meals)) return null;
   if (version >= 3 && !isObj(value.foodOptions)) return null;
+  if (version >= 4 && (!isObj(value.celebrations) || !Array.isArray(value.birthdays) || !Array.isArray(value.bonusAwards))) return null;
 
   const children = cleanList(value.children as unknown[], toChild);
   const childIds = new Set(children.items.map((c) => c.id));
@@ -255,6 +259,25 @@ export function parseFamilyData(value: unknown, options: ParseOptions = {}): Par
     puddings = { items: derived.puddings, dropped: false };
   }
 
+  // v4: seasonal themes, birthdays (one per existing child) and bonus awards
+  // (at most one birthday award per child and year).
+  const celebrations = version >= 4 ? parseCelebrationSettings(value.celebrations) : { settings: defaultCelebrationSettings(), repaired: false };
+  const rawBirthdays = version >= 4 ? (value.birthdays as unknown[]) : [];
+  const seenBirthday = new Set<string>();
+  const birthdays = rawBirthdays.map(toBirthday).filter((b): b is NonNullable<typeof b> => {
+    if (!b || !childIds.has(b.childId) || seenBirthday.has(b.childId)) return false;
+    seenBirthday.add(b.childId);
+    return true;
+  });
+  const awards = cleanList(version >= 4 ? (value.bonusAwards as unknown[]) : [], toBonusAward);
+  const seenAward = new Set<string>();
+  const uniqueAwards = awards.items.filter((a) => {
+    const k = `${a.kind}|${a.childId}|${a.year}`;
+    if (seenAward.has(k)) return false;
+    seenAward.add(k);
+    return true;
+  });
+
   const settings = toSettings(value.settings, pinRequired);
 
   const repaired =
@@ -268,6 +291,10 @@ export function parseFamilyData(value: unknown, options: ParseOptions = {}): Par
     puddings.dropped ||
     uniqueMeals.length !== meals.items.length ||
     uniqueCompletions.length !== completions.items.length ||
+    celebrations.repaired ||
+    birthdays.length !== rawBirthdays.length ||
+    awards.dropped ||
+    uniqueAwards.length !== awards.items.length ||
     settings === null;
 
   return {
@@ -281,6 +308,9 @@ export function parseFamilyData(value: unknown, options: ParseOptions = {}): Par
       redemptions: redemptions.items,
       meals: uniqueMeals,
       foodOptions: { mains: mains.items, puddings: puddings.items },
+      celebrations: celebrations.settings,
+      birthdays,
+      bonusAwards: uniqueAwards,
     },
     repaired,
     migrated,

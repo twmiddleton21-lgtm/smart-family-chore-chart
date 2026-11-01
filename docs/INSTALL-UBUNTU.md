@@ -208,6 +208,17 @@ Finally, open the app as usual and check the children and their points.
 
 ### Going back to the previous version
 
+**From the Themes & Celebrations release (not published yet) to 0.6.0:** the new release upgrades the family data format once (v3 → v4) after an automatic backup, `/data/backups/<time>-pre-format-v3-to-v4.db`. 0.6.0 refuses to start on the upgraded data rather than silently dropping birthdays and birthday points, so go back by restoring that backup. Changes made since the update (chores ticked, birthdays, theme settings) are lost; sign-ins and paired kiosks as they were at the backup come back:
+
+```bash
+docker compose -p sfcc -f compose.server.yaml stop app
+sed -i 's|^SFCC_SERVER_IMAGE=.*|SFCC_SERVER_IMAGE=ghcr.io/twmiddleton21-lgtm/smart-family-chore-chart-server:0.6.0|' .env
+docker compose -p sfcc -f compose.server.yaml run --rm app node dist-server/cli.js restore /data/backups/<the …-pre-format-v3-to-v4.db file> --yes
+docker compose -p sfcc -f compose.server.yaml up -d
+```
+
+Tested on a throwaway copy: a database made by the real 0.6.0 code was upgraded, 0.6.0 then refused it, and after putting the backup file back 0.6.0 started with exactly the data from before the upgrade. The `cli.js restore` step itself was not part of that test (the file was copied back directly), and nothing has been tried on a real Docker volume yet.
+
 **From 0.6.0 to 0.5.0:** both use the same database (schema 4), so change only the image line back and start it. Data and sign-ins are kept:
 
 ```bash

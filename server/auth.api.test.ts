@@ -1022,6 +1022,9 @@ const PUBLIC_ROUTES = new Set([
   'POST /api/auth/login',
   'POST /api/auth/logout',
   'POST /api/devices/pair',
+  // Today's seasonal theme for the sign-in and pairing screens: only the
+  // theme and its dates (server/celebrations.api.test.ts checks what it holds).
+  'GET /api/celebrations/theme',
   // Google's redirect back: no session cookie arrives (SameSite=Strict), so it
   // is guarded by the single-use OAuth state and a browser-binding cookie
   // instead (see server/calendar/familyCalendar.test.ts).

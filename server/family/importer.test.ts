@@ -7,7 +7,9 @@ import { buildExportFile, checksumOf, EXPORT_APP, parseImport } from './importer
 function v3BrowserData() {
   const r = completeChore(makeFamily(), 'a-bed', '2026-10-12');
   if (!r.ok) throw new Error(r.error);
-  return JSON.parse(JSON.stringify(r.data));
+  // As v0.3.0-v0.6.0 saved it: format 3, without the v4 collections.
+  const { celebrations: _c, birthdays: _b, bonusAwards: _a, ...v3 } = JSON.parse(JSON.stringify(r.data));
+  return { ...v3, version: 3 };
 }
 
 describe('parseImport', () => {
@@ -19,7 +21,7 @@ describe('parseImport', () => {
     expect(JSON.stringify(r.doc)).not.toContain('parentPin');
     expect(r.summary).toMatchObject({
       sourceFormatVersion: 3,
-      upgraded: false,
+      upgraded: true,
       pinIgnored: true,
       familyName: 'Test Family',
       counts: { children: 2, chores: 3, rewards: 2, completions: 1, redemptions: 0, meals: 0, mainMeals: 2, puddings: 2 },

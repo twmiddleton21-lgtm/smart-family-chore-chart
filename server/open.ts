@@ -2,6 +2,7 @@ import path from 'node:path';
 import { createBackup } from './db/backup';
 import { openDatabase, type SqlDatabase } from './db/database';
 import { currentSchemaVersion, MIGRATIONS, pendingMigrations, runMigrations, type Migration } from './db/migrations';
+import { DATA_VERSION } from '../src/types';
 import { FamilyStore } from './family/store';
 
 export const DATABASE_FILE = 'chorechart.db';
@@ -15,6 +16,8 @@ export interface OpenedData {
   store: FamilyStore;
   migrated: number[];
   preMigrationBackup: string | null;
+  /** Set when a family document from an older release was upgraded (e.g. v3 → v4). */
+  formatUpgrade: { from: number; to: number; backup: string } | null;
   created: boolean;
 }
 
@@ -39,8 +42,17 @@ export async function openData(
     }
     const migrated = runMigrations(db, migrations);
     const store = new FamilyStore(db, { timeZone });
+    // A family document saved by an older release (format 3, up to 0.6.0):
+    // back up the whole database first, then upgrade it in one transaction.
+    let formatUpgrade: OpenedData['formatUpgrade'] = null;
+    const format = store.storedFormat();
+    if (format !== null && format < DATA_VERSION) {
+      const backup = await createBackup(db, dataDir, `pre-format-v${format}-to-v${DATA_VERSION}`);
+      const upgraded = store.upgradeFormat();
+      if (upgraded) formatUpgrade = { ...upgraded, backup };
+    }
     const { created } = store.initialize();
-    return { db, store, migrated, preMigrationBackup, created };
+    return { db, store, migrated, preMigrationBackup, formatUpgrade, created };
   } catch (error) {
     db.close();
     throw error;

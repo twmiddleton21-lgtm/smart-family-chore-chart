@@ -82,3 +82,20 @@ Check on the device:
 1. Open a chore chart and leave it. At about 2 minutes the screen should dim, and the home screen should show when it wakes.
 2. Open the parent area, sign in and leave it: it should go home and ask for the password again.
 3. Start adding a chore, type a name and leave it: it should stay for up to 10 minutes.
+
+## Seasonal themes and birthdays on the kiosk
+
+From the Themes & Celebrations release, every screen (sign-in, home, the children's screens, the parent area and the calendar) can carry a seasonal theme or a birthday celebration (Parent area → Themes & Celebrations). There is one decoration layer for the whole app. The sky, snow, ground and garland sit behind the content; things that fly or float across (bats, hearts and roses, fireworks and confetti, balloons, Santa's sleigh) pass in front of it. For a kiosk:
+
+- **Nothing on the device changes.** Dimming, overnight standby and touch set-up are untouched; the themes are ordinary page content.
+- **Taps, swipes and scrolling always reach the app.** No decoration takes a touch, including the ones in front. Dialogs (PIN entry, parent sign-in, confirmations), messages and the preview bar are always drawn above them. While someone types in a field on the page, the flying pieces fade out until they're done.
+- **Santa flies by now and then:** first a minute or two after the screen starts, then every 4 to 10 minutes, one crossing at a time (a parent's preview shows him within a few seconds).
+- **Light on the Pi.** Only transform and opacity are animated, with no downloads.
+  - Snow is three tiled sheets rather than hundreds of elements; the fairy lights are 28 glowing bulbs. Santa exists in the page only while crossing.
+  - The animations pause after 10 minutes without input and start again at the next tap; no Santa fly-bys are planned while paused.
+  - Measured in Chrome at 1080×1920, 60 Hz, with the CPU slowed 4×: 60 frames a second for every theme; about 1.6–2.2 ms of main-thread work per frame for Halloween and 2.3–2.8 ms for Christmas (it varies from run to run); Santa adds nothing measurable mid-flight, and at most one dropped frame as he first appears.
+  - **Not yet measured on the Raspberry Pi itself.**
+- **Reduced motion.** If the browser or OS asks for reduced motion, every decoration stays still (the theme is still shown) and Santa doesn't fly.
+- **Birthday reward.** On a child's birthday, the first tap on a paired kiosk opens the celebration and gives the reward. The server gives it only once per child per year, however many kiosks or taps. A parent's own (unpaired) phone or laptop shows the banner but doesn't trigger the celebration.
+
+To check on the Pi: preview each theme from the parent area ("Preview", then "Back to scheduled theme"); for Christmas, wait a few seconds for Santa. Scroll a chore chart and tick a few chores while a theme shows. Watch that the 2-minute return home and the display dimming behave as before.

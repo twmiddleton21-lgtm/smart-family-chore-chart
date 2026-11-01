@@ -107,11 +107,74 @@ export interface Settings {
   mealReminderDismissedOn: DateKey | null;
 }
 
+// ---------- Seasonal themes and birthdays (format v4) ----------
+
+/** The seasonal themes, in calendar order. */
+export const THEME_IDS = ['newYear', 'valentines', 'easter', 'halloween', 'christmas'] as const;
+export type ThemeId = (typeof THEME_IDS)[number];
+
+/**
+ * A parent's own dates for a theme, saved as whole days before (negative) or
+ * after the holiday itself, so they repeat every year and follow a holiday
+ * that moves (Easter). Null = the recurring default dates.
+ */
+export interface ThemeDates {
+  startOffset: number;
+  endOffset: number;
+}
+
+export interface ThemeSetting {
+  enabled: boolean;
+  custom: ThemeDates | null;
+}
+
+export interface CelebrationSettings {
+  themes: Record<ThemeId, ThemeSetting>;
+  /** The visual birthday theme and banner. Rewards are switched per child. */
+  birthdaysEnabled: boolean;
+}
+
+/** A child's birthday: month and day only (the year of birth is never stored). */
+export interface ChildBirthday {
+  childId: string;
+  /** 1–12 */
+  month: number;
+  /** 1–31 (29 February is celebrated on 28 February in other years). */
+  day: number;
+  reward: BirthdayReward;
+}
+
+export interface BirthdayReward {
+  enabled: boolean;
+  /** Bonus points (0 allowed when there is a gift). */
+  points: number;
+  /** What the child gets, e.g. "Cinema trip". May be empty when points > 0. */
+  gift: string;
+}
+
+/**
+ * Points given outside chores. A birthday award is unique per child and
+ * calendar year; `points` and `note` are snapshots of the reward at the time.
+ */
+export interface BonusAward {
+  id: string;
+  childId: string;
+  kind: 'birthday';
+  /** The birthday year this award belongs to. */
+  year: number;
+  date: DateKey;
+  points: number;
+  note: string;
+  awardedAt: string;
+}
+
 /**
  * v1 → v2 (2026-10-13): added `meals` and `settings.mealReminderDismissedOn`.
  * v2 → v3 (2026-10-13): added `foodOptions` (catalog built from existing meal names).
+ * v3 → v4 (2026-10-31): added `celebrations`, `birthdays` and `bonusAwards`
+ *   (defaults: every theme on with its default dates, no birthdays, no awards).
  */
-export const DATA_VERSION = 3;
+export const DATA_VERSION = 4;
 
 export interface FamilyData {
   version: typeof DATA_VERSION;
@@ -123,6 +186,9 @@ export interface FamilyData {
   redemptions: Redemption[];
   meals: MealEntry[];
   foodOptions: FoodOptions;
+  celebrations: CelebrationSettings;
+  birthdays: ChildBirthday[];
+  bonusAwards: BonusAward[];
 }
 
 /** Result type used by all state-changing business logic. */

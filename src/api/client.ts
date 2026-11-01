@@ -1,4 +1,5 @@
 import type { DateKey, FamilyData } from '../types';
+import type { BirthdayToday } from '../lib/celebrations';
 import type { ExportFile, ExportedFamily } from '../lib/exportFile';
 
 // Small typed client for the family server API. Every failure becomes an
@@ -37,6 +38,12 @@ export interface ServerState {
   family: ExportedFamily;
   today: DateKey;
   timeZone: string;
+  /**
+   * Today's birthdays (household time zone). Paired devices get these
+   * instead of the parents-only `family.birthdays`. Absent from servers
+   * before 0.7.0.
+   */
+  birthdaysToday?: BirthdayToday[];
 }
 
 export interface CommandBody {

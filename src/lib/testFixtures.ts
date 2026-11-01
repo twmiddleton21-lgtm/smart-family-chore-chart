@@ -1,3 +1,4 @@
+import { defaultCelebrationSettings } from './celebrations';
 import { DATA_VERSION, type FamilyData } from '../types';
 import type { StorageLike } from './storage';
 
@@ -38,6 +39,10 @@ export function makeFamily(): FamilyData {
         { id: 'fp-yoghurt', name: 'Yoghurt' },
       ],
     },
+
+    celebrations: defaultCelebrationSettings(),
+    birthdays: [],
+    bonusAwards: [],
   };
 }
 

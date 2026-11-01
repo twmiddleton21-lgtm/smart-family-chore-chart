@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { Child, FamilyData, Reward } from '../types';
 import { pointsBalance } from '../lib/points';
 import { recentRedemptions } from '../lib/rewards';
+import { recentBonusAwards } from '../lib/celebrations';
 import { parseDateKey } from '../lib/dates';
 import { Avatar } from '../components/Avatar';
 import { ConfirmDialog } from '../components/ConfirmDialog';
@@ -23,6 +24,7 @@ export function RewardsScreen({ data, child, actions, onBack }: RewardsScreenPro
   const [pending, setPending] = useState<Reward | null>(null);
   const balance = pointsBalance(data, child.id);
   const history = recentRedemptions(data, child.id);
+  const bonuses = recentBonusAwards(data, child.id);
   const rewards = [...data.rewards].sort((a, b) => a.cost - b.cost);
 
   const [redeeming, setRedeeming] = useState(false);
@@ -114,6 +116,27 @@ export function RewardsScreen({ data, child, actions, onBack }: RewardsScreenPro
           </ul>
         )}
       </section>
+
+      {bonuses.length > 0 && (
+        <section className="history" aria-labelledby="bonus-title">
+          <h2 id="bonus-title" className="section-subtitle">
+            Birthday gifts
+          </h2>
+          <ul className="history-list">
+            {bonuses.map((a) => (
+              <li key={a.id}>
+                <span>
+                  <span aria-hidden="true">🎂</span> {a.note || `${a.year} birthday bonus`}
+                </span>
+                <span className="muted">
+                  {parseDateKey(a.date) ? shortDate.format(parseDateKey(a.date)!) : a.date}
+                  {a.points > 0 ? ` · +${a.points} points` : ''}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {pending && (
         <ConfirmDialog

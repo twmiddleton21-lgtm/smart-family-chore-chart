@@ -1,9 +1,10 @@
 import { DATA_VERSION, type FamilyData, type Settings } from '../../src/types';
+import { defaultCelebrationSettings } from '../../src/lib/celebrations';
 import { isEmptyFamily } from '../../src/lib/family';
 import { mondayOf } from '../../src/lib/meals';
 import { parseFamilyData } from '../../src/lib/storage';
 
-// The server's family document: the browser FamilyData format (version 3)
+// The server's family document: the browser FamilyData format (version 4)
 // WITHOUT the legacy client-side PIN, which is never stored on or sent from
 // the server. Business rules in src/lib work on FamilyData, so documents are
 // converted at the boundary with toLib()/fromLib().
@@ -25,6 +26,9 @@ export function emptyFamily(): FamilyDocument {
     redemptions: [],
     meals: [],
     foodOptions: { mains: [], puddings: [] },
+    celebrations: defaultCelebrationSettings(),
+    birthdays: [],
+    bonusAwards: [],
   };
 }
 
@@ -70,8 +74,10 @@ export function parseStoredDocument(json: string): FamilyDocument {
 // ---------- Editable-record snapshots (for conflict detection) ----------
 
 /**
- * Every record a device can edit, keyed "<kind>:<id>". Completions and
- * redemptions are intent-based (idempotent or re-checked) and not listed.
+ * Every record a device can edit, keyed "<kind>:<id>". Completions,
+ * redemptions and bonus awards are intent-based (idempotent or re-checked)
+ * and not listed. Seasonal theme settings are one record
+ * ("celebrations:household"); each child's birthday is "birthday:<childId>".
  * Meal plans are tracked per child and week ("mealWeek:<childId>:<monday>").
  */
 export function recordSnapshots(doc: FamilyDocument): Map<string, string> {
@@ -82,6 +88,8 @@ export function recordSnapshots(doc: FamilyDocument): Map<string, string> {
   for (const o of doc.foodOptions.mains) map.set(`foodMain:${o.id}`, JSON.stringify(o));
   for (const o of doc.foodOptions.puddings) map.set(`foodPudding:${o.id}`, JSON.stringify(o));
   map.set('settings:household', JSON.stringify({ familyName: doc.settings.familyName }));
+  map.set('celebrations:household', JSON.stringify(doc.celebrations));
+  for (const b of doc.birthdays) map.set(`birthday:${b.childId}`, JSON.stringify(b));
   const weeks = new Map<string, unknown[]>();
   for (const m of [...doc.meals].sort((a, b) => a.date.localeCompare(b.date))) {
     const key = `mealWeek:${m.childId}:${mondayOf(m.date)}`;

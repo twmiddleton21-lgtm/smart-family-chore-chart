@@ -1,5 +1,6 @@
 import type { DateKey, FamilyData, FoodCategory, Weekday } from '../../src/types';
 import { toggleChore } from '../../src/lib/chores';
+import { claimBirthdayReward, removeBirthday, saveCelebrationSettings, setBirthday, validateBirthday, validCelebrationSettings } from '../../src/lib/celebrations';
 import { addFoodOption, removeFoodOption } from '../../src/lib/foodOptions';
 import * as manage from '../../src/lib/manage';
 import { saveMealWeek } from '../../src/lib/meals';
@@ -29,6 +30,10 @@ export const COMMAND_TYPES = [
   'removeFoodOption',
   'updateSettings',
   'loadDemoFamily',
+  'saveCelebrationSettings',
+  'saveBirthday',
+  'removeBirthday',
+  'claimBirthdayReward',
 ] as const;
 
 export type CommandType = (typeof COMMAND_TYPES)[number];
@@ -254,6 +259,47 @@ export function executeCommand(cmd: Command, doc: FamilyDocument, ctx: CommandCo
         const v = validateFamilyName(str(p, 'familyName'));
         if (!v.ok) return rejected('Please check the family name.', v.errors as Record<string, string>);
         return { ok: true, doc: fromLib(manage.updateSettings(data, { familyName: v.value })) };
+      }
+
+      case 'saveCelebrationSettings': {
+        const settings = validCelebrationSettings(p.settings);
+        if (!settings) return bad('"settings" must list every theme with valid dates.');
+        const conflict = checkVersion(cmd, ctx, 'celebrations:household');
+        if (conflict) return conflict;
+        return { ok: true, doc: fromLib(saveCelebrationSettings(data, settings)) };
+      }
+
+      case 'saveBirthday': {
+        const childId = id(p, 'childId');
+        const { month, day, points, rewardEnabled } = p;
+        if (!Number.isInteger(month) || !Number.isInteger(day) || !Number.isInteger(points)) {
+          return bad('"month", "day" and "points" must be whole numbers.');
+        }
+        if (typeof rewardEnabled !== 'boolean') return bad('"rewardEnabled" must be true or false.');
+        if (!data.children.some((c) => c.id === childId)) return notFound('That profile no longer exists.');
+        const conflict = checkVersion(cmd, ctx, `birthday:${childId}`);
+        if (conflict) return conflict;
+        const v = validateBirthday({ month: String(month), day: String(day), rewardEnabled, points: String(points), gift: str(p, 'gift', 200) });
+        if (!v.ok) return rejected('Please check the birthday details.', v.errors as Record<string, string>);
+        return { ok: true, doc: fromLib(setBirthday(data, { childId, ...v.value })) };
+      }
+
+      case 'removeBirthday': {
+        const childId = id(p, 'childId');
+        if (!data.birthdays.some((b) => b.childId === childId)) return notFound('That birthday has already been removed.');
+        const conflict = checkVersion(cmd, ctx, `birthday:${childId}`);
+        if (conflict) return conflict;
+        return { ok: true, doc: fromLib(removeBirthday(data, childId)) };
+      }
+
+      // A paired kiosk's first tap on a birthday. Runs inside the store's
+      // write transaction, so two devices tapping at once cannot both award:
+      // the second sees the first award and changes nothing (noChange).
+      case 'claimBirthdayReward': {
+        const childId = id(p, 'childId');
+        if (!data.children.some((c) => c.id === childId)) return notFound('That profile no longer exists.');
+        const r = claimBirthdayReward(data, childId, ctx.today, ctx.now);
+        return r.ok ? { ok: true, doc: fromLib(r.data) } : rejected(r.error);
       }
 
       case 'loadDemoFamily': {

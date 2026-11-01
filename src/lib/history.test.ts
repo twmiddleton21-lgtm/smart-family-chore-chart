@@ -13,11 +13,12 @@ import {
   weekDays,
 } from './history';
 import { addDays } from './dates';
+import { defaultCelebrationSettings } from './celebrations';
 import { pointsBalance } from './points';
 
 function family(completions: Completion[] = []): FamilyData {
   return {
-    version: 3,
+    version: 4,
     settings: { familyName: 'Test', parentPin: '1234', mealReminderDismissedOn: null },
     children: [
       { id: 'a', name: 'Alex', avatar: '🦊', color: 'teal' },
@@ -34,6 +35,9 @@ function family(completions: Completion[] = []): FamilyData {
     redemptions: [],
     meals: [],
     foodOptions: { mains: [], puddings: [] },
+    celebrations: defaultCelebrationSettings(),
+    birthdays: [],
+    bonusAwards: [],
   };
 }
 

@@ -1,3 +1,4 @@
+import { defaultCelebrationSettings } from '../lib/celebrations';
 import { describe, expect, it } from 'vitest';
 import { ApiError, AUTH_CHANGED_EVENT, createApiClient, createRequester, toFamilyData } from './client';
 
@@ -80,7 +81,7 @@ describe('API client', () => {
 
   it('adds an empty PIN placeholder for the browser data type', () => {
     const fam = toFamilyData({
-      version: 3,
+      version: 4,
       settings: { familyName: 'X', mealReminderDismissedOn: null },
       children: [],
       chores: [],
@@ -89,6 +90,9 @@ describe('API client', () => {
       redemptions: [],
       meals: [],
       foodOptions: { mains: [], puddings: [] },
+      celebrations: defaultCelebrationSettings(),
+      birthdays: [],
+      bonusAwards: [],
     });
     expect(fam.settings.parentPin).toBe('');
   });

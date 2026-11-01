@@ -21,7 +21,12 @@ import { MealReminderDialog } from './components/MealReminderDialog';
 import { AccessStatusScreen, DevModeBanner, ServerStatusScreen, SignOutProblemBanner } from './components/ServerStatus';
 import { mealReminders, shouldShowMealReminder } from './lib/meals';
 import { CONNECT_RESULTS, connectResultFromHash } from './lib/calendar';
-import type { FamilyData } from './types';
+import type { BirthdayReward, FamilyData } from './types';
+import { THEMES } from './lib/celebrations';
+import { celebrationView, type CelebrationPreview } from './state/celebration';
+import { useBirthdayFirstTap } from './state/birthdayTap';
+import { CelebrationHost, useCelebrationDisplay } from './state/celebrationHost';
+import { BirthdayCelebration, PreviewBar, type CelebrationEntry } from './components/celebrations/Banners';
 
 type Screen =
   | { name: 'dashboard' }
@@ -33,7 +38,10 @@ type Screen =
 export function App() {
   return (
     <ToastProvider>
-      <AppShell />
+      {/* One seasonal decoration layer for every screen (state/celebrationHost.tsx). */}
+      <CelebrationHost publicTheme={DATA_SOURCE === 'api'}>
+        <AppShell />
+      </CelebrationHost>
     </ToastProvider>
   );
 }
@@ -104,6 +112,10 @@ function AppContent({ store, data }: { store: FamilyStore; data: FamilyData }) {
   const [parentTab, setParentTab] = useState<ParentTab>('chores');
   // "Plan meals now" hides the reminder for this visit; "Remind me tomorrow" persists.
   const [reminderHidden, setReminderHidden] = useState(false);
+  // A parent's theme or birthday preview: this tab's memory only, never saved.
+  const [preview, setPreview] = useState<CelebrationPreview | null>(null);
+  // The birthday celebration pop-up (after the first tap, or a preview).
+  const [celebrating, setCelebrating] = useState<{ entries: CelebrationEntry[]; preview: BirthdayReward | null } | null>(null);
 
   const goHome = () => setScreen({ name: 'dashboard' });
 
@@ -132,6 +144,44 @@ function AppContent({ store, data }: { store: FamilyStore; data: FamilyData }) {
     setGateOpen(false);
     setScreen({ name: 'parent' });
   };
+
+  // Seasonal theme and birthdays on the child-facing screens (home, a
+  // child's chart and rewards). The parent area and calendar stay plain.
+  // Seasonal theme and birthdays, on every screen. The children's screens
+  // carry the full themed sky; the parent area and calendar ("work" screens)
+  // get a readable panel over dark skies.
+  const childFacing = effective.name === 'dashboard' || effective.name === 'child' || effective.name === 'rewards';
+  const view = celebrationView(data, today, store.birthdaysToday, preview);
+  useCelebrationDisplay({ view, surface: childFacing ? 'child' : 'work' });
+
+  const startPreview = (next: CelebrationPreview, reward?: BirthdayReward) => {
+    setPreview(next);
+    setGateOpen(false);
+    setScreen({ name: 'dashboard' });
+    if (next.kind === 'birthday') {
+      const child = data.children.find((c) => c.id === next.childId);
+      if (child) setCelebrating({ entries: [{ child, award: null, problem: null }], preview: reward ?? { enabled: false, points: 0, gift: '' } });
+    }
+  };
+  /**
+   * End a preview. From a child-facing screen, go back to Themes &
+   * Celebrations (if the parent is still signed in); inside the parent area,
+   * stay on the current tab.
+   */
+  const endPreview = () => {
+    setPreview(null);
+    setCelebrating(null);
+    if (screen.name !== 'parent' && (!signIn || parentSignedIn)) {
+      setParentTab('celebrations');
+      setScreen({ name: 'parent' });
+    }
+  };
+  const previewLabel =
+    preview?.kind === 'theme'
+      ? `the ${THEMES[preview.themeId].name} theme`
+      : preview?.kind === 'birthday'
+        ? `${data.children.find((c) => c.id === preview.childId)?.name ?? 'a child'}’s birthday`
+        : '';
 
   /**
    * End the parent session: lock this screen at once, then ask the server to
@@ -193,12 +243,16 @@ function AppContent({ store, data }: { store: FamilyStore; data: FamilyData }) {
   // exit", so a kiosk also signs the parent out. A parent's own signed-in
   // device keeps the 30-minute parent idle lock above instead.
   const homeAfterIdle = !(signIn && access.status.device === null);
-  const awayFromHome = effective.name !== 'dashboard' || gateOpen;
+  const awayFromHome = effective.name !== 'dashboard' || gateOpen || preview !== null;
   const returnHomeAfterIdle = useRef<() => void>(() => undefined);
   returnHomeAfterIdle.current = () => {
     setGateOpen(false);
     setParentTab('chores');
-    if (screen.name === 'parent') void exitParent('Parent area locked and signed out after 2 minutes without activity.');
+    // A preview left running ends too; on a kiosk the parent who started it is signed out.
+    const previewing = preview !== null;
+    setPreview(null);
+    if (previewing) setCelebrating(null);
+    if (screen.name === 'parent' || previewing) void exitParent('Parent area locked and signed out after 2 minutes without activity.');
     else goHome();
     window.scrollTo(0, 0);
   };
@@ -214,10 +268,33 @@ function AppContent({ store, data }: { store: FamilyStore; data: FamilyData }) {
     });
   }, [homeAfterIdle, awayFromHome]);
 
+  // A parent's birthdays and reward settings are only sent to signed-in
+  // parents, so read the family data again when a parent signs in or out.
+  const firstSignInState = useRef(true);
+  useEffect(() => {
+    if (firstSignInState.current) {
+      firstSignInState.current = false;
+      return;
+    }
+    if (signIn) void actions.refresh();
+  }, [signIn, parentSignedIn, actions]);
+
+  // The birthday moment: the first tap on a shared screen on a child's birthday.
+  useBirthdayFirstTap({
+    active: homeAfterIdle && childFacing && preview === null && !gateOpen && celebrating === null,
+    today,
+    birthdays: store.birthdaysToday,
+    visual: data.celebrations.birthdaysEnabled,
+    data,
+    claim: actions.claimBirthdayReward,
+    onCelebrate: (entries) => setCelebrating({ entries, preview: null }),
+  });
+
   return (
     <div className="app">
       {store.mode === 'api' && <DevModeBanner />}
       <SignOutProblemBanner />
+      {preview && <PreviewBar label={previewLabel} onEnd={endPreview} />}
       {store.saveFailed && (
         <div className="banner banner-warning" role="alert">
           ⚠️ This browser is not letting the app save. Changes will be lost when the page is closed. Check that site
@@ -252,6 +329,7 @@ function AppContent({ store, data }: { store: FamilyStore; data: FamilyData }) {
             setParentTab('chores');
             setGateOpen(true);
           }}
+          celebration={view}
         />
       )}
       {effective.name === 'child' && selectedChild && (
@@ -263,6 +341,7 @@ function AppContent({ store, data }: { store: FamilyStore; data: FamilyData }) {
           actions={actions}
           onBack={goHome}
           onOpenRewards={() => setScreen({ name: 'rewards', childId: selectedChild.id })}
+          birthday={view.birthdayChildren.some((c) => c.id === selectedChild.id)}
         />
       )}
       {effective.name === 'rewards' && selectedChild && (
@@ -285,10 +364,19 @@ function AppContent({ store, data }: { store: FamilyStore; data: FamilyData }) {
           access={signIn ? access : null}
           onExit={() => void exitParent()}
           onSignOut={() => void signOut()}
+          onPreview={startPreview}
         />
       )}
 
-      {effective.name === 'dashboard' && !gateOpen && !reminderHidden && shouldShowMealReminder(data, today) && (
+      {celebrating && (
+        <BirthdayCelebration
+          entries={celebrating.entries}
+          preview={celebrating.preview}
+          onClose={() => setCelebrating(null)}
+        />
+      )}
+
+      {effective.name === 'dashboard' && !gateOpen && !reminderHidden && !preview && !celebrating && shouldShowMealReminder(data, today) && (
         <MealReminderDialog
           reminders={mealReminders(data, today)}
           today={today}

@@ -13,7 +13,8 @@ export function saveChild(data: FamilyData, value: Omit<Child, 'id'>, id?: strin
 
 /**
  * Remove a child and everything that belongs to them: chores, completions,
- * redemptions and school meals. Other children are untouched.
+ * redemptions, school meals, their birthday and bonus awards. Other
+ * children are untouched.
  */
 export function deleteChild(data: FamilyData, id: string): FamilyData {
   return {
@@ -23,6 +24,8 @@ export function deleteChild(data: FamilyData, id: string): FamilyData {
     completions: data.completions.filter((c) => c.childId !== id),
     redemptions: data.redemptions.filter((r) => r.childId !== id),
     meals: data.meals.filter((m) => m.childId !== id),
+    birthdays: data.birthdays.filter((b) => b.childId !== id),
+    bonusAwards: data.bonusAwards.filter((a) => a.childId !== id),
   };
 }
 

@@ -1,6 +1,7 @@
 import type { ApiErrorKind, ImportPreview } from '../api/client';
 import type { DataSource } from '../config';
-import type { Child, Chore, DateKey, FamilyData, FoodCategory, Reward } from '../types';
+import type { BonusAward, CelebrationSettings, Child, ChildBirthday, Chore, DateKey, FamilyData, FoodCategory, Reward } from '../types';
+import type { BirthdayToday } from '../lib/celebrations';
 import type { ExportFile } from '../lib/exportFile';
 import type { MealRow } from '../lib/meals';
 
@@ -8,6 +9,15 @@ import type { MealRow } from '../lib/meals';
 // store and the server-backed store implement it.
 
 export type ActionResult = { ok: true } | { ok: false; error: string; kind: ApiErrorKind | 'local' | 'unsupported' };
+
+/**
+ * A birthday reward claim. `awarded` is true only for the request that gave
+ * the reward; repeats (another tap, device or reload) get the same award
+ * back with awarded: false.
+ */
+export type ClaimResult =
+  | { ok: true; awarded: boolean; award: BonusAward | null }
+  | { ok: false; error: string; kind: ApiErrorKind | 'local' | 'unsupported' };
 
 export type ImportApplyResult = { ok: true; backup: string } | { ok: false; error: string; kind: ApiErrorKind | 'unsupported' };
 
@@ -32,6 +42,11 @@ export interface FamilyActions {
   resetDemoData(): Promise<ActionResult>;
   /** Server mode only, and only into an empty household. */
   loadDemoFamily(): Promise<ActionResult>;
+  saveCelebrationSettings(settings: CelebrationSettings, baseVersion?: number): Promise<ActionResult>;
+  saveBirthday(value: ChildBirthday, baseVersion?: number): Promise<ActionResult>;
+  removeBirthday(childId: string, baseVersion?: number): Promise<ActionResult>;
+  /** Give today's birthday reward (once per child per year). Never call it for a preview. */
+  claimBirthdayReward(childId: string): Promise<ClaimResult>;
   /** Current version of an editable record ("child:<id>", "mealWeek:<child>:<monday>"…). */
   versionOf(key: string): number;
   exportData(): Promise<{ ok: true; file: ExportFile } | { ok: false; error: string }>;
@@ -58,5 +73,7 @@ export interface FamilyStore {
   saveFailed: boolean;
   /** Local mode: a one-off load notice (data repaired or recovered). */
   loadNotice: string | null;
+  /** Whose birthday it is today, in the household's time zone. */
+  birthdaysToday: BirthdayToday[];
   actions: FamilyActions;
 }

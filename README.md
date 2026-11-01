@@ -79,10 +79,25 @@ The app comes in two editions:
   - a **private calendar address (iCal)** from Google Calendar, Outlook/Microsoft 365 or iCloud, which needs no Google Cloud setup.
 
   The server keeps the token or address encrypted, and the browser never sees it. No central service is involved. Setup: [`docs/GOOGLE-CALENDAR.md`](docs/GOOGLE-CALENDAR.md).
+- **Seasonal themes and birthdays (Parent area → Themes & Celebrations):**
+  - **New Year, Valentine’s Day, Easter, Halloween and Christmas** themes decorate **every screen**: sign-in and pairing, the home screen, the children’s charts and rewards, the parent area and the Family Calendar.
+    - Each has an animated background and a top garland. The home screen adds a banner; Christmas and New Year show a countdown.
+    - Halloween: bats with flapping wings on varied routes, flickering pumpkin light, cobwebs and spiders. Christmas: glowing fairy lights, falling snow, and now and then Santa’s sleigh and reindeer flying across.
+    - Things that fly or float across (bats, hearts and roses, fireworks and confetti, balloons, Santa) pass in front of the screens; they never take a tap, and dialogs, messages and the preview bar stay on top.
+    - On dark skies, parent and calendar screens sit on a readable panel.
+    - The sign-in screens learn today’s theme from a public endpoint that returns only the theme and its dates.
+  - Each theme switches itself on for the **Monday–Sunday week of its holiday**. Easter Sunday is worked out for each year. Christmas runs from **1 November to 25 December**.
+  - Parents can switch any theme off, choose their own dates, and **preview** a theme on one screen without changing anything.
+  - Own dates are kept as days before and after the holiday, so they repeat every year (and move with Easter). “Restore default dates” goes back to the rule.
+  - **Birthdays:** set a child’s birthday (day and month only, never the year) and an optional reward of bonus points and/or a gift.
+    - On the day, the home screen shows a birthday banner with the child’s name, combined with any seasonal theme.
+    - The first tap on a shared family screen opens a celebration and gives the reward: **once per child per year**, enforced by the server even with several kiosks, reloads or simultaneous taps.
+    - Rewards count in the points balance and show in the child’s Rewards screen and the parents’ Chore history.
+  - Dates use the household’s time zone. Animations are light (transform and opacity only), never cover controls, stop for `prefers-reduced-motion`, and pause after 10 minutes without input.
 - **Touchscreen kiosks:** native finger scrolling everywhere with hidden scrollbars, and an opt-in `?dragscroll=1` mode for touchscreens the browser reports as a mouse. See [`docs/KIOSK-TOUCHSCREEN.md`](docs/KIOSK-TOUCHSCREEN.md).
 - **Export and import:** export the family data as a JSON file. On the shared server, import it, with a preview, a confirmation and an automatic backup first.
 - **Accessibility:** semantic HTML, labelled controls, keyboard-operable dialogs and tabs, visible focus rings, 48px+ touch targets and `prefers-reduced-motion` support.
-- **Privacy:** no analytics, ads, trackers, CDNs or external requests from the browser (the optional Family Calendar is fetched by the shared server, not the browser). Only a first name or nickname, an avatar and a colour are stored per child.
+- **Privacy:** no analytics, ads, trackers, CDNs or external requests from the browser (the optional Family Calendar is fetched by the shared server, not the browser). Only a first name or nickname, an avatar and a colour are stored per child, plus, if a parent sets one, a birthday as day and month only. On the shared server, birthdays and reward settings are sent only to signed-in parents; a paired kiosk learns only whose birthday it is on the day.
 
 ## Visual preview
 
@@ -263,6 +278,7 @@ docker compose -p sfcc -f compose.server.yaml exec app node dist-server/cli.js s
 - **What happens at start-up:**
   - From 0.4.0, the database upgrades itself once, after an automatic verified backup in `/data/backups`. It only adds tables. From 0.5.0 there is nothing to upgrade (both use schema 4).
   - Parents and paired kiosks stay signed in, and your `.env`, the calendar key, host names and any tunnel or proxy are untouched.
+  - **Themes & Celebrations release (not published yet):** the first start upgrades the family data format once (v3 → v4), after an automatic verified backup `/data/backups/…-pre-format-v3-to-v4.db`. It only adds the theme settings, birthdays and birthday awards; every existing record is kept. The database schema stays at 4. Going back to 0.6.0 afterwards means restoring that backup: 0.6.0 refuses to start on v4 data rather than lose birthdays and birthday points. See [Going back to the previous version](docs/INSTALL-UBUNTU.md#going-back-to-the-previous-version).
 - **Going back:** an older image refuses an upgraded database rather than risk it. The guide's [Going back to the previous version](docs/INSTALL-UBUNTU.md#going-back-to-the-previous-version) has two tested ways:
   - restore the automatic backup; or
   - keep today's data and remove only the calendar tables.
@@ -451,7 +467,7 @@ The data source is chosen at build time: the default build is browser-only, and 
 
 ## Data and privacy in the browser-only app
 
-- **Storage:** data is stored in localStorage under `smart-family-chore-chart:data`, as one JSON document (format `version: 3`). Older formats are upgraded automatically.
+- **Storage:** data is stored in localStorage under `smart-family-chore-chart:data`, as one JSON document (format `version: 4` since the Themes & Celebrations release). Older formats are upgraded automatically.
 - **Validation:** everything is validated on load. Unreadable data is copied to `smart-family-chore-chart:unreadable-backup` before sample data is loaded.
 - **Scope:** data belongs to one **browser profile and site address**.
 - **Reset:** Parent area → Settings → **Reset to sample data**.

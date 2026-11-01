@@ -16,9 +16,11 @@ interface PanelProps {
   data: FamilyData;
   actions: FamilyActions;
   mode: DataSource;
+  /** Switch to the Themes & Celebrations tab. */
+  onOpenCelebrations?: () => void;
 }
 
-export function SettingsPanel({ data, actions, mode }: PanelProps) {
+export function SettingsPanel({ data, actions, mode, onOpenCelebrations }: PanelProps) {
   const notify = useToast();
   const access = useAccess();
   const [familyName, setFamilyName] = useState(data.settings.familyName);
@@ -132,6 +134,18 @@ export function SettingsPanel({ data, actions, mode }: PanelProps) {
             accounts or device pairing, so anyone using this computer can change family data.
           </p>
           <p className="muted">Start the server normally to use sign-in. Don’t use development mode for real family data.</p>
+        </section>
+      )}
+
+      {onOpenCelebrations && (
+        <section className="settings-card settings-celebrations">
+          <h2 className="section-subtitle">
+            <span aria-hidden="true">🎉</span> Themes &amp; Celebrations
+          </h2>
+          <p>Seasonal themes (New Year, Valentine’s Day, Easter, Halloween, Christmas), their dates and previews, and birthday celebrations and rewards.</p>
+          <button type="button" className="button button-primary" onClick={onOpenCelebrations}>
+            Open Themes &amp; Celebrations
+          </button>
         </section>
       )}
 

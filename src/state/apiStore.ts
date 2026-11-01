@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError, createApiClient, toFamilyData, type ApiClient, type ApiErrorKind, type CommandBody, type ServerState } from '../api/client';
 import type { FamilyData } from '../types';
+import { birthdayAward, birthdaysToday, yearOf } from '../lib/celebrations';
 import { commands } from './apiCommands';
-import type { ActionResult, FamilyActions, FamilyStore } from './storeTypes';
+import type { ActionResult, ClaimResult, FamilyActions, FamilyStore } from './storeTypes';
 import { useToday } from './time';
 
 // Server-backed data source (shared-backend development build). The server
@@ -85,6 +86,22 @@ export function useApiFamilyStore(client: ApiClient = defaultClient): FamilyStor
 
     const unsupported = (error: string): ActionResult => ({ ok: false, error, kind: 'unsupported' });
 
+    async function claim(childId: string): Promise<ClaimResult> {
+      let noChange: boolean;
+      try {
+        noChange = (await client.sendCommand(commands.claimBirthdayReward(childId))).noChange;
+      } catch (e) {
+        const err = e instanceof ApiError ? e : new ApiError('server', 'Unexpected error.');
+        if (err.kind === 'unreachable') setConnectionLost(true);
+        await load();
+        return { ok: false, kind: err.kind, error: rejectionMessage(err) };
+      }
+      await load();
+      const state = serverRef.current;
+      const award = state ? (birthdayAward(state.family, childId, yearOf(state.today)) ?? null) : null;
+      return { ok: true, awarded: !noChange, award };
+    }
+
     return {
       toggleChore: (choreId) => run(commands.toggleChore(choreId)),
       redeemReward: (childId, rewardId) => run(commands.redeemReward(childId, rewardId)),
@@ -102,6 +119,10 @@ export function useApiFamilyStore(client: ApiClient = defaultClient): FamilyStor
       updatePin: async () => unsupported('The PIN is not used with the shared family server. Parents sign in with their own accounts instead.'),
       resetDemoData: async () => unsupported('Resetting is not available with the shared family server.'),
       loadDemoFamily: () => run(commands.loadDemoFamily()),
+      saveCelebrationSettings: (settings, base) => run(commands.saveCelebrationSettings(settings, base, versionOf)),
+      saveBirthday: (value, base) => run(commands.saveBirthday(value, base, versionOf)),
+      removeBirthday: (childId, base) => run(commands.removeBirthday(childId, base, versionOf)),
+      claimBirthdayReward: claim,
       versionOf,
       exportData: async () => {
         try {
@@ -145,6 +166,7 @@ export function useApiFamilyStore(client: ApiClient = defaultClient): FamilyStor
     connectionLost,
     saveFailed: false,
     loadNotice: null,
+    birthdaysToday: server ? (server.birthdaysToday ?? (data ? birthdaysToday(data, server.today) : [])) : [],
     actions,
   };
 }

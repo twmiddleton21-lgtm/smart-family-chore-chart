@@ -5,6 +5,8 @@ import { Clock } from '../components/Clock';
 import { ProfileCard } from '../components/ProfileCard';
 import { ScreenTitle } from '../components/ScreenTitle';
 import { TodaysMeals } from '../components/TodaysMeals';
+import { BirthdayBanner, SeasonBanner } from '../components/celebrations/Banners';
+import { NO_CELEBRATION, type CelebrationView } from '../state/celebration';
 
 interface DashboardProps {
   data: FamilyData;
@@ -13,9 +15,12 @@ interface DashboardProps {
   onOpenParent: () => void;
   /** Opens the family calendar; omitted where there is none (browser-only builds). */
   onOpenCalendar?: () => void;
+  /** Seasonal theme and birthdays to show (see state/celebration.ts). */
+  celebration?: CelebrationView;
 }
 
-export function Dashboard({ data, today, onSelectChild, onOpenParent, onOpenCalendar }: DashboardProps) {
+export function Dashboard({ data, today, onSelectChild, onOpenParent, onOpenCalendar, celebration = NO_CELEBRATION }: DashboardProps) {
+  const birthdayIds = new Set(celebration.birthdayChildren.map((c) => c.id));
   const progress = data.children.map((child) => childProgress(data, child.id, today));
   const familyDone = progress.reduce((sum, p) => sum + p.done, 0);
   const familyTotal = progress.reduce((sum, p) => sum + p.total, 0);
@@ -40,6 +45,9 @@ export function Dashboard({ data, today, onSelectChild, onOpenParent, onOpenCale
           </button>
         </div>
       </header>
+
+      <BirthdayBanner children={celebration.birthdayChildren} />
+      <SeasonBanner view={celebration} />
 
       <Clock familyName={data.settings.familyName} />
 
@@ -76,6 +84,7 @@ export function Dashboard({ data, today, onSelectChild, onOpenParent, onOpenCale
                 progress={progress[i]!}
                 balance={pointsBalance(data, child.id)}
                 onSelect={onSelectChild}
+                birthday={birthdayIds.has(child.id)}
               />
             ))}
           </ul>
