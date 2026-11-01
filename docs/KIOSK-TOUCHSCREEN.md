@@ -85,7 +85,7 @@ Check on the device:
 
 ## Seasonal themes and birthdays on the kiosk
 
-From the Themes & Celebrations release, every screen (sign-in, home, the children's screens, the parent area and the calendar) can carry a seasonal theme or a birthday celebration (Parent area → Themes & Celebrations). There is one decoration layer for the whole app. The sky, snow, ground and garland sit behind the content; things that fly or float across (bats, hearts and roses, fireworks and confetti, balloons, Santa's sleigh) pass in front of it. For a kiosk:
+From version 0.7.0, every screen (sign-in, home, the children's screens, the parent area and the calendar) can carry a seasonal theme or a birthday celebration (Parent area → Themes & Celebrations). There is one decoration layer for the whole app. The sky, snow, ground and garland sit behind the content; things that fly or float across (bats, hearts and roses, fireworks and confetti, balloons, Santa's sleigh) pass in front of it. For a kiosk:
 
 - **Nothing on the device changes.** Dimming, overnight standby and touch set-up are untouched; the themes are ordinary page content.
 - **Taps, swipes and scrolling always reach the app.** No decoration takes a touch, including the ones in front. Dialogs (PIN entry, parent sign-in, confirmations), messages and the preview bar are always drawn above them. While someone types in a field on the page, the flying pieces fade out until they're done.
