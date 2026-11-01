@@ -162,10 +162,15 @@ export interface BonusAward {
   kind: 'birthday';
   /** The birthday year this award belongs to. */
   year: number;
-  date: DateKey;
+  /**
+   * The day and time it was given. Always stored (the record validator
+   * requires both), but left out of a paired device's view of the family:
+   * they would reveal the child's birthday (server/app.ts deviceFamily).
+   */
+  date?: DateKey;
+  awardedAt?: string;
   points: number;
   note: string;
-  awardedAt: string;
 }
 
 /**

@@ -129,7 +129,8 @@ export function RewardsScreen({ data, child, actions, onBack }: RewardsScreenPro
                   <span aria-hidden="true">🎂</span> {a.note || `${a.year} birthday bonus`}
                 </span>
                 <span className="muted">
-                  {parseDateKey(a.date) ? shortDate.format(parseDateKey(a.date)!) : a.date}
+                  {/* The year only: a shared screen never shows the day (it would give the birthday away). */}
+                  Birthday bonus {a.year}
                   {a.points > 0 ? ` · +${a.points} points` : ''}
                 </span>
               </li>

@@ -13,6 +13,7 @@ import { currentSchemaVersion, LATEST_SCHEMA_VERSION } from './db/migrations';
 import { activeTheme, birthdaysToday } from '../src/lib/celebrations';
 import { COMMAND_TYPES, type Command, type CommandType } from './family/commands';
 import { buildExportFile, parseImport } from './family/importer';
+import type { FamilyDocument } from './family/document';
 import type { FamilyStore } from './family/store';
 
 // HTTP API.
@@ -43,6 +44,24 @@ export interface AppDeps {
 
 /** What a paired device may do without a parent signed in. */
 export const DEVICE_COMMANDS: ReadonlySet<CommandType> = new Set(['toggleChore', 'redeemReward', 'dismissMealReminder', 'claimBirthdayReward']);
+
+/**
+ * The family data as a paired device (kiosk) sees it: no birthdays, and past
+ * birthday rewards without the day or time they were given, which would
+ * reveal the birthday. Parents and exports always get the full records.
+ */
+export function deviceFamily(family: FamilyDocument): FamilyDocument {
+  return {
+    ...family,
+    birthdays: [],
+    bonusAwards: family.bonusAwards.map(({ date: _date, awardedAt: _awardedAt, ...shared }) => shared),
+  };
+}
+
+/** Record versions for a paired device: without the per-child birthday records it cannot see. */
+export function deviceRecordVersions(versions: Record<string, number>): Record<string, number> {
+  return Object.fromEntries(Object.entries(versions).filter(([key]) => !key.startsWith('birthday:')));
+}
 
 export const PARENT_COOKIE = 'sfcc_parent';
 export const DEVICE_COOKIE = 'sfcc_device';
@@ -497,17 +516,21 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     return { today, occurrence: occurrence ? { themeId: occurrence.themeId, holiday: occurrence.holiday, start: occurrence.start, end: occurrence.end, custom: occurrence.custom } : null };
   });
 
-  // Children's birthdays and birthday-reward settings are for parents only:
-  // a paired device gets an empty `birthdays` list and just `birthdaysToday`
-  // (whose birthday it is today and whether its reward has been given).
+  // Children's birthdays and birthday-reward settings are for parents only.
+  // A paired device gets just `birthdaysToday` (whose birthday it is today
+  // and whether its reward has been given), and nothing it could work a
+  // birthday out from later: no `birthdays` list, no birthday record
+  // versions, and past birthday rewards without the day or time they were
+  // given (the year, points and gift stay, for the balance and the child's
+  // Rewards screen).
   app.get('/api/state', { preParsing: requireHousehold }, async (request) => {
     const state = store.read();
     const today = store.today();
     const parentView = dev || ctxOf(request).parent !== null;
     return {
       stateVersion: state.stateVersion,
-      recordVersions: state.recordVersions,
-      family: parentView ? state.family : { ...state.family, birthdays: [] },
+      recordVersions: parentView ? state.recordVersions : deviceRecordVersions(state.recordVersions),
+      family: parentView ? state.family : deviceFamily(state.family),
       today,
       timeZone: config.timeZone,
       birthdaysToday: birthdaysToday(state.family, today),

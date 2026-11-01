@@ -160,6 +160,96 @@ test('the theme stays through the kiosk, parent sign-in, the whole parent area, 
   await ctx.close();
 });
 
+test('a paired kiosk shows birthday rewards by year only and never receives the day; a parent signed in on it sees everything', async ({ browser }) => {
+  const today = londonToday();
+  const year = Number(today.slice(0, 4));
+  const [, month, day] = today.split('-').map(Number) as [number, number, number];
+  const name = `Bday${Date.now().toString(36).slice(-5)}`;
+  type Award = Record<string, unknown> & { childId: string };
+
+  // A parent adds a child whose birthday is today, with a reward, and pairs a kiosk.
+  const adminCtx = await admin(browser);
+  const send = async (type: string, payload: object, expectedVersion?: number) => {
+    const r = await adminCtx.request.post('/api/commands', { data: { type, payload, ...(expectedVersion === undefined ? {} : { expectedVersion }) } });
+    expect(r.ok(), await r.text()).toBe(true);
+  };
+  await send('saveChild', { name, avatar: '🦄', color: 'pink' });
+  const childId = (await (await adminCtx.request.get('/api/state')).json()).family.children.find((c: { name: string }) => c.name === name).id as string;
+  try {
+    await send('saveBirthday', { childId, month, day, rewardEnabled: true, points: 15, gift: 'Kite' }, 0);
+    const { code } = await (await adminCtx.request.post('/api/devices/pairing-codes', { data: { name: `Kiosk ${Date.now()}` } })).json();
+
+    const ctx = await browser.newContext();
+    const page = await ctx.newPage();
+    await page.goto('/');
+    await page.getByLabel('Pairing code').fill(code);
+    await page.getByRole('button', { name: 'Pair this device' }).click();
+    await expect(page.getByRole('button', { name: /Parent area/ }).first()).toBeVisible();
+    const later = page.getByRole('button', { name: 'Remind me tomorrow' });
+    if (await later.isVisible().catch(() => false)) await later.click();
+
+    // The kiosk's first tap gives the reward, as before.
+    await expect(page.getByTestId('birthday-banner')).toContainText(name);
+    await page.mouse.click(20, 400);
+    await expect(page.getByTestId('birthday-celebration')).toContainText('+15 bonus points');
+    await page.getByRole('button', { name: /Thank you/ }).click();
+
+    // What the kiosk's screens load: the award by year, without its day or time,
+    // no birthday list and no birthday record versions.
+    const loaded = page.waitForResponse((r) => r.url().endsWith('/api/state') && r.request().method() === 'GET');
+    await page.reload();
+    const kioskView = await (await loaded).json();
+    const kioskAward = (kioskView.family.bonusAwards as Award[]).find((a) => a.childId === childId)!;
+    expect(Object.keys(kioskAward).sort()).toEqual(['childId', 'id', 'kind', 'note', 'points', 'year']);
+    expect(kioskAward).toMatchObject({ year, points: 15, note: 'Kite' });
+    expect(kioskView.family.birthdays).toEqual([]);
+    expect(Object.keys(kioskView.recordVersions).filter((k) => k.startsWith('birthday:'))).toEqual([]);
+
+    // The child's Rewards screen: "Birthday bonus <year>", never the day.
+    await page.getByRole('button', { name: new RegExp(`Open ${name}'s chore chart`) }).click();
+    await page.getByRole('button', { name: /Rewards/ }).click();
+    const gifts = page.locator('section[aria-labelledby="bonus-title"]');
+    await expect(gifts).toContainText(`Birthday bonus ${year} · +15 points`);
+    const shown = await gifts.innerText();
+    const dayText = await page.evaluate(
+      ([y, m, d]) => new Intl.DateTimeFormat(undefined, { weekday: 'short', day: 'numeric', month: 'short' }).format(new Date(y!, m! - 1, d)),
+      [year, month, day],
+    );
+    expect(shown).not.toContain(dayText);
+    expect(shown).not.toContain(new Intl.DateTimeFormat(undefined, { month: 'short' }).format(new Date(year, month - 1, day)));
+
+    // A parent signing in on the same kiosk gets the full records back.
+    await page.goto('/');
+    await page.getByRole('button', { name: /Parent area/ }).first().click();
+    const dialog = page.getByRole('dialog', { name: 'Parent sign in' });
+    await dialog.getByLabel('Username').fill(USERNAME);
+    await dialog.getByLabel('Password').fill(PASSWORD);
+    await dialog.getByRole('button', { name: 'Sign in' }).click();
+    await expect(page.getByRole('heading', { name: /Parent area/ })).toBeVisible();
+    const parentView = await (await ctx.request.get('/api/state')).json();
+    expect((parentView.family.bonusAwards as Award[]).find((a) => a.childId === childId)).toMatchObject({ date: today, awardedAt: expect.any(String), year });
+    expect(parentView.family.birthdays).toContainEqual(expect.objectContaining({ childId, month, day }));
+    expect(parentView.recordVersions[`birthday:${childId}`]).toBeGreaterThan(0);
+    await page.getByRole('tab', { name: 'Themes & Celebrations' }).click();
+    await expect(page.getByTestId('theme-card-birthday')).toContainText(new RegExp(`${year} birthday reward given on .*\\+15 points and Kite`));
+    await page.getByRole('tab', { name: 'Chore history' }).click();
+    await expect(page.getByText('Birthday reward: Kite')).toBeVisible();
+
+    // Signing out on the kiosk returns it to the device view.
+    await page.getByRole('button', { name: /lock & exit/ }).click();
+    await expect(page.getByText(/signed out/i).first()).toBeVisible();
+    const after = await (await ctx.request.get('/api/state')).json();
+    expect(Object.keys((after.family.bonusAwards as Award[]).find((a) => a.childId === childId)!)).not.toContain('date');
+    expect(after.family.birthdays).toEqual([]);
+    await ctx.close();
+  } finally {
+    // Tidy up: removing the child removes its birthday and reward.
+    const st = await (await adminCtx.request.get('/api/state')).json();
+    await send('deleteChild', { id: childId }, st.recordVersions[`child:${childId}`]);
+    await adminCtx.close();
+  }
+});
+
 test('a switched-off theme disappears from the sign-in screen too', async ({ browser }) => {
   await saveSettings(browser, (s) => {
     s.themes[themeId].enabled = false;

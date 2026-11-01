@@ -120,6 +120,46 @@ describe('access control', () => {
     expect((await get(k, '/api/export')).statusCode).toBe(403);
   });
 
+  it('never lets a paired device work out a birthday afterwards, while parents keep the full records', async () => {
+    await start();
+    const { p, maya } = await household();
+    const k = await kiosk(p);
+    expect((await command(k, 'claimBirthdayReward', { childId: maya })).json().noChange).toBe(false);
+    expect((await command(k, 'claimBirthdayReward', { childId: maya })).json().noChange).toBe(true); // once per year
+
+    // Two weeks later: nothing in the kiosk's view points to 30 October.
+    await stop();
+    await start('Europe/London', new Date('2026-11-13T12:00:00Z'));
+    const later = await state(k);
+    expect(later.today).toBe('2026-11-13');
+    expect(later.birthdaysToday).toEqual([]);
+    expect(later.family.birthdays).toEqual([]);
+    expect(later.family.bonusAwards).toEqual([{ id: expect.any(String), childId: maya, kind: 'birthday', year: 2026, points: 50, note: 'Cinema trip' }]);
+    expect(Object.keys(later.recordVersions).filter((key) => key.startsWith('birthday:'))).toEqual([]);
+    expect(Object.keys(later.recordVersions)).toContain(`child:${maya}`); // other records keep their versions
+    const text = JSON.stringify(later);
+    for (const clue of ['10-30', '2026-10-30', '23:30', NOW.toISOString(), '"date"', 'awardedAt', '"month"', '"day"']) expect(text).not.toContain(clue);
+
+    // The balance is the same for the kiosk and for a parent: 50 birthday points.
+    const login = await post({}, '/api/auth/login', { username: 'sam', password: PASSWORD });
+    expect(login.statusCode).toBe(200);
+    const p2: Jar = {};
+    for (const c of login.cookies as { name: string; value: string }[]) p2[c.name] = c.value;
+    const full = await state(p2);
+    const bonus = (s: { family: { bonusAwards: { childId: string; points: number }[] } }) =>
+      s.family.bonusAwards.filter((a) => a.childId === maya).reduce((sum, a) => sum + a.points, 0);
+    expect(bonus(later)).toBe(50);
+    expect(bonus(full)).toBe(50);
+    // Parents still see everything: the birthday, the award's day and time, and the record version.
+    expect(full.family.birthdays).toEqual([expect.objectContaining({ childId: maya, month: 10, day: 30 })]);
+    expect(full.family.bonusAwards).toEqual([expect.objectContaining({ date: '2026-10-30', awardedAt: NOW.toISOString(), year: 2026 })]);
+    expect(full.recordVersions[`birthday:${maya}`]).toBeGreaterThan(0);
+    expect((await get(p2, '/api/export')).json().data.bonusAwards[0]).toMatchObject({ date: '2026-10-30', awardedAt: NOW.toISOString() });
+    // And can still edit the birthday with the version they were given.
+    const edit = await command(p2, 'saveBirthday', { childId: maya, month: 10, day: 30, rewardEnabled: true, points: 60, gift: '' }, full.recordVersions[`birthday:${maya}`]);
+    expect(edit.statusCode).toBe(200);
+  });
+
   it('checks settings sent by a parent and refuses stale edits', async () => {
     await start();
     const { p } = await household();
@@ -158,8 +198,10 @@ describe('birthday reward', () => {
 
     const s = await state(k);
     expect(s.birthdaysToday).toEqual([{ childId: maya, rewardEnabled: true, claimed: true }]);
-    expect(s.family.bonusAwards).toEqual([
-      expect.objectContaining({ childId: maya, kind: 'birthday', year: 2026, date: '2026-10-30', points: 50, note: 'Cinema trip' }),
+    // The kiosk sees the award by year, without the day it was given (see the privacy test below).
+    expect(s.family.bonusAwards).toEqual([{ id: expect.any(String), childId: maya, kind: 'birthday', year: 2026, points: 50, note: 'Cinema trip' }]);
+    expect((await state(p)).family.bonusAwards).toEqual([
+      expect.objectContaining({ childId: maya, kind: 'birthday', year: 2026, date: '2026-10-30', points: 50, note: 'Cinema trip', awardedAt: NOW.toISOString() }),
     ]);
     const log = opened.db.all<{ type: string; actor: string }>("SELECT type, actor FROM command_log WHERE type = 'claimBirthdayReward'");
     expect(log).toHaveLength(1);

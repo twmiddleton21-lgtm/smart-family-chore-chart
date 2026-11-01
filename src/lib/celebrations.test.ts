@@ -15,6 +15,7 @@ import {
   nextBirthday,
   occurrenceFor,
   parseCelebrationSettings,
+  recentBonusAwards,
   removeBirthday,
   seasonGreeting,
   setBirthday,
@@ -330,6 +331,18 @@ describe('birthday reward', () => {
       expect(r.award).toMatchObject({ points: 0, note: 'Choose dinner' });
       expect(pointsBalance(r.data, 'a')).toBe(pointsBalance(makeFamily(), 'a'));
     }
+  });
+
+  it('works from a paired device’s copy, which has no award day or time: same points, newest year first, still once per year', () => {
+    const y1 = claimBirthdayReward(withBirthday(), 'a', '2026-03-12', NOW);
+    if (!y1.ok) throw new Error(y1.error);
+    const y2 = claimBirthdayReward(y1.data, 'a', '2027-03-12', NOW);
+    if (!y2.ok) throw new Error(y2.error);
+    const shared: FamilyData = { ...y2.data, birthdays: [], bonusAwards: y2.data.bonusAwards.map(({ date: _d, awardedAt: _t, ...rest }) => rest) };
+    expect(pointsBalance(shared, 'a')).toBe(pointsBalance(y2.data, 'a'));
+    expect(recentBonusAwards(shared, 'a').map((a) => a.year)).toEqual([2027, 2026]);
+    expect(recentBonusAwards(y2.data, 'a').map((a) => a.year)).toEqual([2027, 2026]);
+    expect(birthdaysToday({ ...y2.data, bonusAwards: shared.bonusAwards }, '2027-03-12')[0]!.claimed).toBe(true);
   });
 
   it('keeps a given reward when the birthday is removed, and removes both with the child', () => {

@@ -36,8 +36,10 @@ export function birthdayRewardStatus(data: FamilyData, child: Child, today: Date
   const award = birthdayAward(data, child.id, year);
   if (award) {
     const parts = [award.points > 0 ? `+${award.points} points` : null, award.note || null].filter(Boolean).join(' and ');
-    const at = new Date(award.awardedAt);
-    return `${year} birthday reward given on ${formatKey(award.date)}${Number.isNaN(at.getTime()) ? '' : ` at ${timeFormat.format(at)}`}${parts ? `: ${parts}` : ''}.`;
+    // Parents always have the day and time; the guards only satisfy the shared type (see BonusAward).
+    const at = new Date(award.awardedAt ?? '');
+    const on = award.date ? ` on ${formatKey(award.date)}` : '';
+    return `${year} birthday reward given${on}${Number.isNaN(at.getTime()) ? '' : ` at ${timeFormat.format(at)}`}${parts ? `: ${parts}` : ''}.`;
   }
   if (!birthday) return 'No birthday set.';
   if (!birthday.reward.enabled) return `No birthday reward is set up (the birthday theme still shows on ${birthdayLabel(birthday)}).`;

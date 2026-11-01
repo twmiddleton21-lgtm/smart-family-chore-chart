@@ -480,10 +480,11 @@ export function removeBirthday(data: FamilyData, childId: string): FamilyData {
   return { ...data, birthdays: data.birthdays.filter((b) => b.childId !== childId) };
 }
 
+/** Newest first, by birthday year (a paired device's copy has no award times; see BonusAward). */
 export function recentBonusAwards(data: Pick<FamilyData, 'bonusAwards'>, childId: string, limit = 5): BonusAward[] {
   return data.bonusAwards
     .filter((a) => a.childId === childId)
-    .sort((a, b) => b.awardedAt.localeCompare(a.awardedAt))
+    .sort((a, b) => b.year - a.year || (b.awardedAt ?? '').localeCompare(a.awardedAt ?? ''))
     .slice(0, limit);
 }
 

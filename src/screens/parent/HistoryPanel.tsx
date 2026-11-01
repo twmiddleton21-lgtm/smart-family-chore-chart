@@ -158,7 +158,7 @@ export function HistoryPanel({ data, today }: PanelProps) {
             {bonuses.length > 0 && (
               <ul className="admin-list">
                 {bonuses.map((a) => {
-                  const time = completedAt(a.awardedAt);
+                  const time = a.awardedAt ? completedAt(a.awardedAt) : null;
                   return (
                     <li key={a.id} className="admin-row history-row history-done history-bonus">
                       <span className="admin-icon" aria-hidden="true">
